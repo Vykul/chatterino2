@@ -27,6 +27,7 @@
 #include "util/RapidJsonSerializeQString.hpp"  // IWYU pragma: keep
 #include "util/serialize/List.hpp"             // IWYU pragma: keep
 #include "widgets/NotebookEnums.hpp"
+#include "widgets/splits/SplitCommon.hpp"
 
 #include <pajlada/settings/setting.hpp>
 #include <pajlada/settings/settinglistener.hpp>
@@ -218,7 +219,7 @@ public:
     EnumSetting<UsernameDisplayMode> usernameDisplayMode = {
         "/appearance/messages/usernameDisplayMode",
         UsernameDisplayMode::UsernameAndLocalizedName};
-
+    
     EnumSetting<NotebookTabLocation> tabDirection = {"/appearance/tabDirection",
                                                      NotebookTabLocation::Top};
     EnumSetting<NotebookTabVisibility> tabVisibility = {
@@ -347,6 +348,11 @@ public:
     BoolSetting autoCloseUserPopup = {"/behaviour/autoCloseUserPopup", true};
     BoolSetting autoCloseThreadPopup = {"/behaviour/autoCloseThreadPopup",
                                         false};
+
+    EnumSetting<SplitDirection> splitDirection = {
+        "/behaviour/splitDirection",
+        SplitDirection::Right
+    };
 
     /// Specifies whether the search functionality should be enabled
     BoolSetting searchEnabled = {

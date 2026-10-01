@@ -10,6 +10,7 @@
 #include "common/WindowDescriptors.hpp"
 #include "debug/AssertInGuiThread.hpp"
 #include "singletons/Fonts.hpp"
+#include "singletons/Settings.hpp"
 #include "singletons/Theme.hpp"
 #include "singletons/WindowManager.hpp"
 #include "util/QMagicEnum.hpp"
@@ -170,7 +171,7 @@ void SplitContainer::insertSplit(Split *split, InsertOptions &&options)
     }
 
     auto *relativeTo = options.relativeNode;
-    const auto direction = options.direction.value_or(SplitDirection::Right);
+    const auto direction = options.direction.value_or(getSettings()->splitDirection);
 
     if (relativeTo == nullptr)
     {
