@@ -219,7 +219,7 @@ public:
     EnumSetting<UsernameDisplayMode> usernameDisplayMode = {
         "/appearance/messages/usernameDisplayMode",
         UsernameDisplayMode::UsernameAndLocalizedName};
-    
+
     EnumSetting<NotebookTabLocation> tabDirection = {"/appearance/tabDirection",
                                                      NotebookTabLocation::Top};
     EnumSetting<NotebookTabVisibility> tabVisibility = {

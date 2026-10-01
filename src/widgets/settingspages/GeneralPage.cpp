@@ -1641,45 +1641,9 @@ void GeneralPage::initLayout(GeneralPageView &layout)
                             })
         ->addTo(layout);
 
-    layout.addDropdown<std::underlying_type_t<SplitDirection>>(
-        "Split direction", 
-        {"Above", "Left", "Right", "Below"},
-        s.splitDirection,
-        [](auto val) {
-            switch (static_cast<SplitDirection>(val))
-            {
-                case SplitDirection::Above:
-                    return "Above";
-                case SplitDirection::Left:
-                    return "Left";
-                case SplitDirection::Right:
-                    return "Right";
-                case SplitDirection::Below:
-                    return "Below";
-            }
-            return "";
-        },
-        [](auto args) {
-            // Default to Right
-            SplitDirection direction = SplitDirection::Right;
-
-            if (args.value == "Above")
-            {
-                direction = SplitDirection::Above;
-            }
-            else if (args.value == "Below")
-            {
-                direction = SplitDirection::Below;
-            }
-            else if (args.value == "Left")
-            {
-                direction = SplitDirection::Left;
-            }
-
-            return static_cast<int>(direction);
-        },
-        false, 
-        "Set the direction that new splits are created in.");
+    SettingWidget::dropdown("Split direction", s.splitDirection)
+        ->setTooltip("Set the direction that new splits are created in.")
+        ->addTo(layout);
 
     SettingWidget::dropdown("Show blocked term automod messages",
                             s.showBlockedTermAutomodMessages)
