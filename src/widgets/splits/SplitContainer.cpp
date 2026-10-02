@@ -1134,7 +1134,7 @@ void SplitContainer::Node::insertSplitRelative(Split *_split,
     // parent != nullptr
     if (this->parent_->type_ == toContainerType(_direction))
     {
-        // hell yeah we'll just insert it next to outselves
+        // hell yeah we'll just insert it next to ourselves
         this->insertNextToThis(_split, _direction);
     }
     else
@@ -1148,7 +1148,14 @@ void SplitContainer::Node::nestSplitIntoCollection(Split *_split,
 {
     if (toContainerType(_direction) == this->type_)
     {
-        this->children_.emplace_back(std::make_shared<Node>(_split, this));
+        if (_direction == SplitDirection::Left ||
+            _direction == SplitDirection::Above)
+        {
+            this->children_.emplace(this->children_.begin(), std::make_shared<Node>(_split, this));
+        }
+        else {
+            this->children_.emplace_back(std::make_shared<Node>(_split, this));
+        }
     }
     else
     {
