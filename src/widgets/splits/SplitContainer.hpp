@@ -97,42 +97,122 @@ public:
         };
 
         Type getType() const;
-        Split *getSplit() const;
-        Node *getParent() const;
-        qreal getHorizontalFlex() const;
-        qreal getVerticalFlex() const;
-        const std::vector<std::shared_ptr<Node>> &getChildren();
+        Split *getSplit() const;    // Leaf
+        Node *getParent() const;    // Base
+        qreal getHorizontalFlex() const;    // Leaf?
+        qreal getVerticalFlex() const;  // Leaf?
+        const std::vector<std::shared_ptr<Node>> &getChildren();    // Container
 
     private:
-        bool isOrContainsNode(Node *_node);
-        Node *findNodeContainingSplit(Split *_split);
-        void insertSplitRelative(Split *_split, SplitDirection _direction);
-        void nestSplitIntoCollection(Split *_split, SplitDirection _direction);
-        void insertNextToThis(Split *_split, SplitDirection _direction);
-        void setSplit(Split *_split);
-        Position releaseSplit();
-        qreal getFlex(bool isVertical);
-        qreal getSize(bool isVertical);
-        qreal getChildrensTotalFlex(bool isVertical);
-        void layout(bool addSpacing, float _scale,
+        bool isOrContainsNode(Node *_node); // Base Virtual
+        Node *findNodeContainingSplit(Split *_split);   // Container
+        void insertSplitRelative(Split *_split, SplitDirection _direction); // Container
+        void nestSplitIntoCollection(Split *_split, SplitDirection _direction); // Container
+        void insertNextToThis(Split *_split, SplitDirection _direction);    // Container
+        void setSplit(Split *_split);   // Leaf
+        Position releaseSplit();    // Container
+        qreal getFlex(bool isVertical); // Leaf?
+        qreal getSize(bool isVertical); // Leaf?
+        qreal getChildrensTotalFlex(bool isVertical);   // Container
+        void layout(bool addSpacing, float _scale,  // Container
                     std::vector<DropRect> &dropRects_,
                     std::vector<ResizeRect> &resizeRects);
 
         // Clamps the flex values ensuring they're never below 0
-        void clamp();
+        void clamp();   // Leaf?
 
         static Type toContainerType(SplitDirection _dir);
 
-        Type type_;
-        Split *split_;
-        Node *preferedFocusTarget_{};
-        Node *parent_;
-        QRectF geometry_;
-        qreal flexH_ = 1;
-        qreal flexV_ = 1;
-        std::vector<std::shared_ptr<Node>> children_;
+        Type type_; // Unnecessary? Maybe only have a type for containers to avoid multiple classes
+        Split *split_;  // Leaf
+        Node *preferedFocusTarget_{};   // Container?
+        Node *parent_;  // Base
+        QRectF geometry_;   // Leaf?
+        qreal flexH_ = 1;   // Leaf?
+        qreal flexV_ = 1;   // Leaf?
+        std::vector<std::shared_ptr<Node>> children_;   // Container
 
         friend class SplitContainer;
+    };
+
+
+
+
+
+
+
+
+
+
+
+    struct NodeBase : public std::enable_shared_from_this<NodeBase> {
+    protected:
+        NodeBase();
+        NodeBase(NodeBase *_parent);
+        ~NodeBase();
+
+    public:
+        NodeBase *getParent() const;
+        qreal getHorizontalFlex() const;
+        qreal getVerticalFlex() const;
+        qreal getFlex(bool isVertical);
+        virtual NodeBase *findNodeContainingSplit(Split *_split) = 0;
+        virtual bool isOrContainsNode(NodeBase *_node);
+
+        virtual void layout(bool addSpacing, float _scale,
+                            std::vector<DropRect> &dropRects_,
+                            std::vector<ResizeRect> &resizeRects) = 0;
+
+    private:
+        NodeBase *parent_{};
+
+        // Weight of a split's size in a container
+        qreal flexH_ = 1;
+        qreal flexV_ = 1;
+
+        friend class SplitContainer;
+    };
+
+    struct NodeContainer final : public NodeBase {
+        NodeContainer();
+
+        const std::vector<std::shared_ptr<NodeBase>> &getChildren();
+        qreal getChildrensTotalFlex(bool isVertical);
+        NodeBase *findNodeContainingSplit(Split *_split) final;
+        bool isOrContainsNode(NodeBase *_node) final;
+
+        void insertNextToThis(Split *_split, SplitDirection _direction);
+        void insertSplitRelative(Split *_split, SplitDirection _direction);
+        void nestSplitIntoCollection(Split *_split, SplitDirection _direction);
+        Position releaseSplit(Split *_split);
+
+        void layout(bool addSpacing, float _scale,
+                    std::vector<DropRect> &dropRects_,
+                    std::vector<ResizeRect> &resizeRects) final;
+
+    private:
+        NodeBase *preferedFocusTarget_{};
+        std::vector<std::shared_ptr<NodeBase>> children_;
+    };
+
+    struct NodeData final : public NodeBase {
+        NodeData();
+        NodeData(Split *_split, NodeBase *_parent);
+
+        Split *getSplit() const;
+        qreal getSize(bool isVertical);
+        NodeBase *findNodeContainingSplit(Split *_split) final;
+
+        // Clamps the flex values ensuring they're never below 0
+        void clamp();
+
+        void layout(bool addSpacing, float _scale,
+                    std::vector<DropRect> &dropRects_,
+                    std::vector<ResizeRect> &resizeRects) final;
+
+    private:
+        QRectF geometry_;
+        Split *split_{};
     };
 
 private:

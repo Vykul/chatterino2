@@ -341,7 +341,7 @@ SplitContainer::Position SplitContainer::releaseSplit(Split *split)
 
     this->splits_.erase(
         std::find(this->splits_.begin(), this->splits_.end(), split));
-    split->setParent(nullptr);
+    split->setParent(nullptr);  // Should this be moved to deleteSplit before deleteLater() is called
     Position position = node->releaseSplit();
     this->layout();
     if (this->splits_.empty())
@@ -1716,6 +1716,173 @@ void SplitContainer::ResizeHandle::resetFlex()
     }
 
     this->parent->layout();
+}
+
+//
+// NodeBase
+//
+
+SplitContainer::NodeBase *SplitContainer::NodeBase::getParent() const
+{
+    return this->parent_;
+}
+
+bool SplitContainer::NodeBase::isOrContainsNode(NodeBase *_node)
+{
+    return (this == _node);
+}
+
+SplitContainer::NodeBase::NodeBase()
+    : parent_(nullptr)
+{
+}
+
+SplitContainer::NodeBase::NodeBase(NodeBase *_parent)
+    : parent_(_parent)
+{
+}
+
+qreal SplitContainer::NodeBase::getHorizontalFlex() const
+{
+    return this->flexH_;
+}
+
+qreal SplitContainer::NodeBase::getVerticalFlex() const
+{
+    return this->flexV_;
+}
+
+qreal SplitContainer::NodeBase::getFlex(bool isVertical)
+{
+    return isVertical ? this->flexV_ : this->flexH_;
+}
+
+//
+// NodeContainer
+//
+SplitContainer::NodeContainer::NodeContainer()
+    : NodeBase()
+    , preferedFocusTarget_(nullptr)
+{
+}
+
+const std::vector<std::shared_ptr<SplitContainer::NodeBase>> &SplitContainer::NodeContainer::getChildren()
+{
+    return this->children_;
+}
+
+qreal SplitContainer::NodeContainer::getChildrensTotalFlex(bool isVertical)
+{
+    return std::accumulate(this->children_.begin(), this->children_.end(),
+                           qreal(0), [=](qreal val, const auto &node) {
+                               return val + node->getFlex(isVertical);
+                           });
+}
+
+SplitContainer::NodeBase *SplitContainer::NodeContainer::findNodeContainingSplit(Split *_split)
+{
+    for (const auto &node : this->children_)
+    {
+        NodeBase *match = node->findNodeContainingSplit(_split);
+
+        if (match != nullptr)
+        {
+            return match;
+        }
+    }
+    return nullptr;
+}
+
+bool SplitContainer::NodeContainer::isOrContainsNode(NodeBase *_node)
+{
+    if (this == _node)
+    {
+        return true;
+    }
+
+    return std::any_of(this->children_.begin(), this->children_.end(),
+                       [_node](const auto &n) {
+                           return n->isOrContainsNode(_node);
+                       });
+}
+
+void SplitContainer::NodeContainer::layout(bool addSpacing, float _scale, std::vector<DropRect> &dropRects_, std::vector<ResizeRect> &resizeRects)
+{
+
+}
+
+SplitContainer::Position SplitContainer::NodeContainer::releaseSplit(Split *_split)
+{
+    if (_split == nullptr || this->children_.empty()) {
+        return Position();
+    }
+
+    NodeBase *match = this->findNodeContainingSplit(_split);
+    if (match == nullptr) {
+        return Position();
+    }
+
+    NodeContainer* container = dynamic_cast<NodeContainer*>(match->parent_);
+    if (container == nullptr) {
+        return Position();
+    }
+
+    auto &children = container->children_;
+    // Can use std::find() on shared_ptr value?
+    auto it = std::find_if(begin(children), end(children), [match](auto &node) {
+        return match == node.get();
+    });
+
+    if (it != children.end()) {
+        children.erase(it);
+    }
+
+    return Position();
+}
+
+//
+// NodeData
+//
+
+SplitContainer::NodeData::NodeData()
+    : NodeBase()
+    , split_(nullptr)
+{
+}
+
+SplitContainer::NodeData::NodeData(Split *_split, NodeBase *_parent)
+    : NodeBase(_parent)
+    , split_(_split)
+{
+}
+
+Split *SplitContainer::NodeData::getSplit() const
+{
+    return this->split_;
+}
+qreal SplitContainer::NodeData::getSize(bool isVertical)
+{
+    return isVertical ? this->geometry_.height() : this->geometry_.width();
+}
+
+SplitContainer::NodeBase *SplitContainer::NodeData::findNodeContainingSplit(Split *_split)
+{
+    if (this->split_ && this->split_ == _split)
+    {
+        return this;
+    }
+    return nullptr;
+}
+
+void SplitContainer::NodeData::clamp()
+{
+    this->flexH_ = std::max(0.0, this->flexH_);
+    this->flexV_ = std::max(0.0, this->flexV_);
+}
+
+void SplitContainer::NodeData::layout(bool addSpacing, float _scale, std::vector<DropRect> &dropRects_, std::vector<ResizeRect> &resizeRects)
+{
+
 }
 
 }  // namespace chatterino
