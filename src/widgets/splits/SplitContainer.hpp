@@ -153,9 +153,6 @@ public:
 
     public:
         NodeBase *getParent() const;
-        qreal getHorizontalFlex() const;
-        qreal getVerticalFlex() const;
-        qreal getFlex(bool isVertical);
         virtual NodeBase *findNodeContainingSplit(Split *_split) = 0;
         virtual bool isOrContainsNode(NodeBase *_node);
 
@@ -166,10 +163,6 @@ public:
     private:
         NodeBase *parent_{};
 
-        // Weight of a split's size in a container
-        qreal flexH_ = 1;
-        qreal flexV_ = 1;
-
         friend class SplitContainer;
     };
 
@@ -177,22 +170,29 @@ public:
         NodeContainer();
 
         const std::vector<std::shared_ptr<NodeBase>> &getChildren();
-        qreal getChildrensTotalFlex(bool isVertical);
+        qreal getChildrensTotalFlex();
         NodeBase *findNodeContainingSplit(Split *_split) final;
         bool isOrContainsNode(NodeBase *_node) final;
 
-        void insertNextToThis(Split *_split, SplitDirection _direction);
-        void insertSplitRelative(Split *_split, SplitDirection _direction);
+        void appendSplit(Split *_split, SplitDirection _direction);
+        void initializeContainer(Split *_split, SplitDirection _direction);
+        void insertSplitRelative(Split *_split, NodeBase* relNode, SplitDirection _direction);
         void nestSplitIntoCollection(Split *_split, SplitDirection _direction);
         Position releaseSplit(Split *_split);
 
+        // Clamps the flex values ensuring they're never below 0
+        void clamp();
         void layout(bool addSpacing, float _scale,
                     std::vector<DropRect> &dropRects_,
                     std::vector<ResizeRect> &resizeRects) final;
 
     private:
         NodeBase *preferedFocusTarget_{};
+        bool isVertical_{false};
+
+        // Parallel vectors
         std::vector<std::shared_ptr<NodeBase>> children_;
+        std::vector<qreal> flexWeights_;
     };
 
     struct NodeData final : public NodeBase {
@@ -200,11 +200,8 @@ public:
         NodeData(Split *_split, NodeBase *_parent);
 
         Split *getSplit() const;
-        qreal getSize(bool isVertical);
+        qreal getSize(bool isVertical); // Have to move this to container since it depends on isVertical?
         NodeBase *findNodeContainingSplit(Split *_split) final;
-
-        // Clamps the flex values ensuring they're never below 0
-        void clamp();
 
         void layout(bool addSpacing, float _scale,
                     std::vector<DropRect> &dropRects_,

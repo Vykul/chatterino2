@@ -1338,6 +1338,7 @@ void SplitContainer::Node::layout(bool addSpacing, float _scale,
 
             qreal totalFlex = std::max<qreal>(
                 0.0001, this->getChildrensTotalFlex(isVertical));
+            // Data loss from int-cast truncation per iteration
             qreal totalSize = std::accumulate(
                 this->children_.begin(), this->children_.end(), qreal(0),
                 [=, this](int val, const auto &node) {
@@ -1742,21 +1743,6 @@ SplitContainer::NodeBase::NodeBase(NodeBase *_parent)
 {
 }
 
-qreal SplitContainer::NodeBase::getHorizontalFlex() const
-{
-    return this->flexH_;
-}
-
-qreal SplitContainer::NodeBase::getVerticalFlex() const
-{
-    return this->flexV_;
-}
-
-qreal SplitContainer::NodeBase::getFlex(bool isVertical)
-{
-    return isVertical ? this->flexV_ : this->flexH_;
-}
-
 //
 // NodeContainer
 //
@@ -1771,12 +1757,9 @@ const std::vector<std::shared_ptr<SplitContainer::NodeBase>> &SplitContainer::No
     return this->children_;
 }
 
-qreal SplitContainer::NodeContainer::getChildrensTotalFlex(bool isVertical)
+qreal SplitContainer::NodeContainer::getChildrensTotalFlex()
 {
-    return std::accumulate(this->children_.begin(), this->children_.end(),
-                           qreal(0), [=](qreal val, const auto &node) {
-                               return val + node->getFlex(isVertical);
-                           });
+    return std::accumulate(this->flexWeights_.begin(), this->flexWeights_.end(), static_cast<qreal>(0));
 }
 
 SplitContainer::NodeBase *SplitContainer::NodeContainer::findNodeContainingSplit(Split *_split)
@@ -1804,6 +1787,84 @@ bool SplitContainer::NodeContainer::isOrContainsNode(NodeBase *_node)
                        [_node](const auto &n) {
                            return n->isOrContainsNode(_node);
                        });
+}
+
+void SplitContainer::NodeContainer::appendSplit(Split *_split, SplitDirection _direction)
+{
+    if (this->children_.empty()) {
+        this->initializeContainer(_split, _direction);
+    }
+    else if (this->isVertical_) {
+        switch (_direction)
+        {
+            case SplitDirection::Above:
+            case SplitDirection::Below:
+                this->children_.emplace_back(std::make_shared<NodeData>(_split, this));
+                break;
+            default:
+                // No-op?
+                return;
+        }
+    }
+    else {
+        switch (_direction)
+        {
+            case SplitDirection::Left:
+            case SplitDirection::Right:
+                this->children_.emplace_back(std::make_shared<NodeData>(_split, this));
+                break;
+            default:
+                // No-op?
+                return;
+        }
+    }
+}
+
+void SplitContainer::NodeContainer::initializeContainer(Split *_split, SplitDirection _direction)
+{
+    switch (_direction)
+    {
+        case SplitDirection::Left:
+        case SplitDirection::Right:
+            this->isVertical_ = false;
+            break;
+        case SplitDirection::Above:
+        case SplitDirection::Below:
+            this->isVertical_ = true;
+            break;
+    }
+    this->children_.emplace_back(std::make_shared<NodeData>(_split, this));
+}
+
+void SplitContainer::NodeContainer::insertSplitRelative(Split *_split, NodeBase* relNode, SplitDirection _direction)
+{
+    auto *container = dynamic_cast<NodeContainer*>(relNode->parent_);
+    if (container) {
+        auto &nodes = container->children_;
+
+        auto it =
+            std::find_if(nodes.begin(), nodes.end(), [relNode](auto &node) {
+                return relNode == node.get();
+            });
+
+        assert(it != nodes.end());
+        if (_direction == SplitDirection::Right ||
+            _direction == SplitDirection::Below)
+        {
+            ++it;
+        }
+
+        auto newNode = std::make_shared<NodeData>(_split, container);
+        // newNode->geometry_ = QRectF(0, 0, width, height);
+        nodes.insert(it, newNode);
+    }
+}
+
+void SplitContainer::NodeContainer::clamp()
+{
+    for (qreal &flex : this->flexWeights_) {
+        flex = std::max(0.0, flex);
+    }
 }
 
 void SplitContainer::NodeContainer::layout(bool addSpacing, float _scale, std::vector<DropRect> &dropRects_, std::vector<ResizeRect> &resizeRects)
@@ -1860,6 +1921,7 @@ Split *SplitContainer::NodeData::getSplit() const
 {
     return this->split_;
 }
+
 qreal SplitContainer::NodeData::getSize(bool isVertical)
 {
     return isVertical ? this->geometry_.height() : this->geometry_.width();
@@ -1872,12 +1934,6 @@ SplitContainer::NodeBase *SplitContainer::NodeData::findNodeContainingSplit(Spli
         return this;
     }
     return nullptr;
-}
-
-void SplitContainer::NodeData::clamp()
-{
-    this->flexH_ = std::max(0.0, this->flexH_);
-    this->flexV_ = std::max(0.0, this->flexV_);
 }
 
 void SplitContainer::NodeData::layout(bool addSpacing, float _scale, std::vector<DropRect> &dropRects_, std::vector<ResizeRect> &resizeRects)
