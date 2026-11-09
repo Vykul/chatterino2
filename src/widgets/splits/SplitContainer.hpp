@@ -39,6 +39,7 @@ class SplitContainer final : public BaseWidget
 
 public:
     struct Node;
+    struct NodeBase;
 
     struct Position final {
     private:
@@ -53,6 +54,22 @@ public:
         SplitDirection direction_{SplitDirection::Right};
 
         friend struct Node;
+        friend class SplitContainer;
+    };
+
+    struct PositionPoly final {
+    private:
+        PositionPoly() = default;
+        PositionPoly(NodeBase *relativeNode, SplitDirection direction)
+            : relativeNode_(relativeNode)
+            , direction_(direction)
+        {
+        }
+
+        NodeBase *relativeNode_{nullptr};
+        SplitDirection direction_{SplitDirection::Right};
+
+        friend struct NodeBase;
         friend class SplitContainer;
     };
 
@@ -149,19 +166,22 @@ public:
     protected:
         NodeBase();
         NodeBase(NodeBase *_parent);
-        ~NodeBase();
 
     public:
+        virtual ~NodeBase() = default;
+
         NodeBase *getParent() const;
         virtual NodeBase *findNodeContainingSplit(Split *_split) = 0;
         virtual bool isOrContainsNode(NodeBase *_node);
 
+        virtual qreal getSize(bool _isVertical) = 0;
         virtual void layout(bool addSpacing, float _scale,
-                            std::vector<DropRect> &dropRects_,
+                            std::vector<DropRect> &dropRects,
                             std::vector<ResizeRect> &resizeRects) = 0;
 
     private:
         NodeBase *parent_{};
+        QRectF geometry_;
 
         friend class SplitContainer;
     };
@@ -175,16 +195,16 @@ public:
         bool isOrContainsNode(NodeBase *_node) final;
 
         void appendSplit(Split *_split, SplitDirection _direction);
-        void initializeContainer(Split *_split, SplitDirection _direction);
         void insertSplitRelative(Split *_split, NodeBase* relNode, SplitDirection _direction);
-        void nestSplitIntoCollection(Split *_split, SplitDirection _direction);
         Position releaseSplit(Split *_split);
 
         // Clamps the flex values ensuring they're never below 0
         void clamp();
+        qreal getSize(bool _isVertical) final;
         void layout(bool addSpacing, float _scale,
-                    std::vector<DropRect> &dropRects_,
+                    std::vector<DropRect> &dropRects,
                     std::vector<ResizeRect> &resizeRects) final;
+        void setAxis(SplitDirection _direction);
 
     private:
         NodeBase *preferedFocusTarget_{};
@@ -193,6 +213,8 @@ public:
         // Parallel vectors
         std::vector<std::shared_ptr<NodeBase>> children_;
         std::vector<qreal> flexWeights_;
+
+        static constexpr qreal defaultFlex_ = 1.0;
     };
 
     struct NodeData final : public NodeBase {
@@ -200,15 +222,14 @@ public:
         NodeData(Split *_split, NodeBase *_parent);
 
         Split *getSplit() const;
-        qreal getSize(bool isVertical); // Have to move this to container since it depends on isVertical?
+        qreal getSize(bool _isVertical) final; // Have to move this to container since it depends on isVertical?
         NodeBase *findNodeContainingSplit(Split *_split) final;
 
         void layout(bool addSpacing, float _scale,
-                    std::vector<DropRect> &dropRects_,
+                    std::vector<DropRect> &dropRects,
                     std::vector<ResizeRect> &resizeRects) final;
 
     private:
-        QRectF geometry_;
         Split *split_{};
     };
 
@@ -274,6 +295,17 @@ public:
         std::optional<SplitDirection> direction{};
     };
 
+    struct InsertOptionsPoly {
+        /// Position must be set alone, as if it's set it will override direction & relativeNode with its underlying values
+        std::optional<PositionPoly> position{};
+
+        /// Will be used to figure out the relative node, so relative node or position must not be set if using this
+        Split *relativeSplit{nullptr};
+
+        NodeBase *relativeNode{nullptr};
+        std::optional<SplitDirection> direction{};
+    };
+
     // Insert split into the base node of this container
     // Default values for each field must be specified due to these bugs:
     //  - https://bugs.llvm.org/show_bug.cgi?id=36684
@@ -285,9 +317,18 @@ public:
                                        .direction = std::nullopt,
                                    });
 
+    void insertSplitPoly(Split *split, InsertOptionsPoly &&options = InsertOptionsPoly{
+                                       .position = std::nullopt,
+                                       .relativeSplit = nullptr,
+                                       .relativeNode = nullptr,
+                                       .direction = std::nullopt,
+                                   });
+
     // Returns a pointer to the selected split
     Split *getSelectedSplit() const;
     Position releaseSplit(Split *split);
+    Position releaseSplitPoly(Split *split);
+
     Position deleteSplit(Split *split);
 
     void selectNextSplit(SplitDirection direction);
@@ -327,6 +368,7 @@ private:
                                         Node *baseNode);
 
     void layout();
+    void layoutPoly();
     void selectSplitRecursive(Node *node, SplitDirection direction);
     void focusSplitRecursive(Node *node);
     void setPreferedTargetRecursive(Node *node);
@@ -345,6 +387,7 @@ private:
     QPoint mouseOverPoint_;
 
     std::shared_ptr<Node> baseNode_;
+    std::shared_ptr<NodeContainer> baseNodePoly_;
     Split *selected_{};
     Split *topRight_{};
     bool disableLayouting_{};
