@@ -188,6 +188,8 @@ public:
 
     struct NodeContainer final : public NodeBase {
         NodeContainer();
+        NodeContainer(NodeContainer *_parent);
+        NodeContainer(NodeContainer &&other) noexcept;
 
         const std::vector<std::shared_ptr<NodeBase>> &getChildren();
         qreal getChildrensTotalFlex();
@@ -195,7 +197,7 @@ public:
         bool isOrContainsNode(NodeBase *_node) final;
 
         void appendSplit(Split *_split, SplitDirection _direction);
-        void insertSplitRelative(Split *_split, NodeBase* relNode, SplitDirection _direction);
+        void appendSplit(Split *_split, SplitDirection _direction, NodeBase* relNode);
         Position releaseSplit(Split *_split);
 
         // Clamps the flex values ensuring they're never below 0
@@ -215,6 +217,10 @@ public:
         std::vector<qreal> flexWeights_;
 
         static constexpr qreal defaultFlex_ = 1.0;
+
+        void insertSplit(Split *_split,
+                         std::vector<std::shared_ptr<NodeBase>>::iterator _iter,
+                         SplitDirection _direction);
     };
 
     struct NodeData final : public NodeBase {
