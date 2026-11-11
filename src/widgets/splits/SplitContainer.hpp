@@ -84,6 +84,16 @@ private:
         {
         }
     };
+    struct DropRectPoly final {
+        QRect rect;
+        PositionPoly position;
+
+        DropRectPoly(const QRect &_rect, const PositionPoly &_position)
+            : rect(_rect)
+            , position(_position)
+        {
+        }
+    };
 
     struct ResizeRect final {
         QRect rect;
@@ -176,7 +186,7 @@ public:
 
         virtual qreal getSize(bool _isVertical) = 0;
         virtual void layout(bool addSpacing, float _scale,
-                            std::vector<DropRect> &dropRects,
+                            std::vector<DropRectPoly> &dropRects,
                             std::vector<ResizeRect> &resizeRects) = 0;
 
     private:
@@ -204,7 +214,7 @@ public:
         void clamp();
         qreal getSize(bool _isVertical) final;
         void layout(bool addSpacing, float _scale,
-                    std::vector<DropRect> &dropRects,
+                    std::vector<DropRectPoly> &dropRects,
                     std::vector<ResizeRect> &resizeRects) final;
         void setAxis(SplitDirection _direction);
 
@@ -232,7 +242,7 @@ public:
         NodeBase *findNodeContainingSplit(Split *_split) final;
 
         void layout(bool addSpacing, float _scale,
-                    std::vector<DropRect> &dropRects,
+                    std::vector<DropRectPoly> &dropRects,
                     std::vector<ResizeRect> &resizeRects) final;
 
     private:
@@ -388,6 +398,8 @@ private:
     void refreshTabLiveStatus();
 
     std::vector<DropRect> dropRects_;
+    std::vector<DropRectPoly> dropRectsPoly_;
+
     DropOverlay overlay_;
     std::vector<std::unique_ptr<ResizeHandle>> resizeHandles_;
     QPoint mouseOverPoint_;

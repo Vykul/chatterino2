@@ -236,8 +236,13 @@ void SplitContainer::insertSplitPoly(Split *split, InsertOptionsPoly &&options)
         assert(this->baseNodePoly_->isOrContainsNode(relativeTo));
 
         auto *container = dynamic_cast<NodeContainer*>(relativeTo->parent_);
+        /* Container is a sub-container of root */
         if (container) {
             container->appendSplit(split, direction, relativeTo);
+        }
+        /* Container is root */
+        else {
+            this->baseNodePoly_->appendSplit(split, direction, relativeTo);
         }
     }
 
@@ -653,12 +658,15 @@ void SplitContainer::layout()
 
 void SplitContainer::layoutPoly()
 {
-    std::vector<DropRect> dropRects;
+    std::vector<DropRectPoly> dropRects;
     std::vector<ResizeRect> resizeRects;
 
     const bool addSpacing =
         Split::modifierStatus == SHOW_ADD_SPLIT_REGIONS || this->isDragging_;
     this->baseNodePoly_->layout(addSpacing, this->scale(), dropRects, resizeRects);
+
+    // TODO: std::move?
+    this->dropRectsPoly_ = dropRects;
 }
 
 void SplitContainer::resizeEvent(QResizeEvent *event)
@@ -689,9 +697,10 @@ void SplitContainer::mouseReleaseEvent(QMouseEvent *event)
                              });
             if (it != this->dropRects_.end())
             {
+                int i = it - this->dropRects_.begin();
                 Split* s = new Split(this);
                 this->insertSplit(s, {.position = it->position});
-                // this->insertSplitPoly(s, {.position = it->position});
+                this->insertSplitPoly(s, {.position = this->dropRectsPoly_[i].position});
             }
         }
     }
@@ -1991,7 +2000,7 @@ qreal SplitContainer::NodeContainer::getSize(bool _isVertical)
     //                        });
 }
 
-void SplitContainer::NodeContainer::layout(bool addSpacing, float _scale, std::vector<DropRect> &dropRects, std::vector<ResizeRect> &resizeRects)
+void SplitContainer::NodeContainer::layout(bool addSpacing, float _scale, std::vector<DropRectPoly> &dropRects, std::vector<ResizeRect> &resizeRects)
 {
     // Empty root
     if(this->children_.empty()) {
@@ -2017,34 +2026,34 @@ void SplitContainer::NodeContainer::layout(bool addSpacing, float _scale, std::v
         qreal offset = std::min<qreal>(this->getSize(!isVertical) * 0.1,
                                        qreal(_scale * 24));
 
-        // // droprect left / above
-        // dropRects.emplace_back(
-        //     QRectF(this->geometry_.left(), this->geometry_.top(),
-        //            isVertical ? offset : this->geometry_.width(),
-        //            isVertical ? this->geometry_.height() : offset)
-        //         .toRect(),
-        //     Position(this, isVertical ? SplitDirection::Left
-        //                               : SplitDirection::Above));
+        // droprect left / above
+        dropRects.emplace_back(
+            QRectF(this->geometry_.left(), this->geometry_.top(),
+                   isVertical ? offset : this->geometry_.width(),
+                   isVertical ? this->geometry_.height() : offset)
+                .toRect(),
+            PositionPoly(this, isVertical ? SplitDirection::Left
+                                          : SplitDirection::Above));
 
-        // // droprect right / below
-        // if (isVertical)
-        // {
-        //     dropRects.emplace_back(
-        //         QRectF(this->geometry_.right() - offset,
-        //                this->geometry_.top(), offset,
-        //                this->geometry_.height())
-        //             .toRect(),
-        //         Position(this, SplitDirection::Right));
-        // }
-        // else
-        // {
-        //     dropRects.emplace_back(
-        //         QRectF(this->geometry_.left(),
-        //                this->geometry_.bottom() - offset,
-        //                this->geometry_.width(), offset)
-        //             .toRect(),
-        //         Position(this, SplitDirection::Below));
-        // }
+        // droprect right / below
+        if (isVertical)
+        {
+            dropRects.emplace_back(
+                QRectF(this->geometry_.right() - offset,
+                       this->geometry_.top(), offset,
+                       this->geometry_.height())
+                    .toRect(),
+                PositionPoly(this, SplitDirection::Right));
+        }
+        else
+        {
+            dropRects.emplace_back(
+                QRectF(this->geometry_.left(),
+                       this->geometry_.bottom() - offset,
+                       this->geometry_.width(), offset)
+                    .toRect(),
+                PositionPoly(this, SplitDirection::Below));
+        }
 
         // shrink childRect
         if (isVertical)
@@ -2247,7 +2256,7 @@ SplitContainer::NodeBase *SplitContainer::NodeData::findNodeContainingSplit(Spli
     return nullptr;
 }
 
-void SplitContainer::NodeData::layout(bool addSpacing, float _scale, std::vector<DropRect> &dropRects_, std::vector<ResizeRect> &resizeRects)
+void SplitContainer::NodeData::layout(bool addSpacing, float _scale, std::vector<DropRectPoly> &dropRects_, std::vector<ResizeRect> &resizeRects)
 {
     QRect rect = this->geometry_.toRect();
     // this->split_->setGeometry(
