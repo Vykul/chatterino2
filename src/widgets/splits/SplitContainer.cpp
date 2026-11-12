@@ -236,11 +236,11 @@ void SplitContainer::insertSplitPoly(Split *split, InsertOptionsPoly &&options)
     {
         assert(this->baseNodePoly_->isOrContainsNode(relativeTo));
 
-        /* Container is root */
+        /* relativeTo is root; split out of bounds */
         if (relativeTo->parent_ == nullptr) {
-            this->baseNodePoly_->appendSplit(split, direction, relativeTo);
+            this->baseNodePoly_->appendSplit(split, direction);
         }
-        /* Container is a sub-container of root */
+        /* relativeTo is contained in a sub-container of root (including itself) */
         else {
             auto *container = dynamic_cast<NodeContainer*>(relativeTo->parent_);
             if (container) {
@@ -348,6 +348,7 @@ void SplitContainer::addSplit(Split *split)
             }
         });
 
+    /* Intra-split splitting */
     conns.managedConnect(
         split->insertSplitRequested, [this](SplitDirection dir, Split *parent) {
             Split *s = new Split(this);
@@ -738,6 +739,7 @@ void SplitContainer::mouseReleaseEvent(QMouseEvent *event)
 
             //            this->setCursor(QCursor(Qt::ArrowCursor));
         }
+        /* Outer-boundary splitting */
         else
         {
             auto it =
@@ -1950,6 +1952,9 @@ bool SplitContainer::NodeContainer::isOrContainsNode(NodeBase *_node)
                        });
 }
 
+// TODO: Centralize logic of appendSplit overloads?
+// Maybe remove this, since it will only ever be called on SplitContainer::baseNode_?
+// Create helper function that accepts a lambda?
 void SplitContainer::NodeContainer::appendSplit(Split *_split, SplitDirection _direction)
 {
     auto &children = this->children_;
@@ -1966,14 +1971,37 @@ void SplitContainer::NodeContainer::appendSplit(Split *_split, SplitDirection _d
             this->setAxis(_direction);
         }
 
-        auto it = children.begin();
-        switch (_direction) {
-            case SplitDirection::Right:
-            case SplitDirection::Below: {
-                it = children.end();
+        unsigned int index = 0;
+        if (this->isVertical_) {
+            switch (_direction) {
+                case SplitDirection::Left:
+                case SplitDirection::Right: {
+                    // children[children.size()] or children.end() will be used as the entry point for outer-boundary splitting
+                    index = children.size();
+                    break;
+                }
+                case SplitDirection::Below: {
+                    index = children.size() - 1;
+                    break;
+                }
             }
         }
-        this->insertSplit(_split, it, _direction);
+        else {
+            switch (_direction) {
+                case SplitDirection::Above:
+                case SplitDirection::Below: {
+                    // children[children.size()] or children.end() will be used as the entry point for outer-boundary splitting
+                    index = children.size();
+                    break;
+                }
+                case SplitDirection::Right: {
+                    index = children.size() - 1;
+                    break;
+                }
+            }
+        }
+
+        this->insertSplit(_split, index, _direction);
     }
 }
 
@@ -1993,10 +2021,14 @@ void SplitContainer::NodeContainer::appendSplit(Split *_split, SplitDirection _d
             this->setAxis(_direction);
         }
 
-        auto it = std::find_if(children.begin(), children.end(), [relNode](auto &node) {
-            return relNode == node.get();
-        });
-        this->insertSplit(_split, it, _direction);
+        unsigned int relNodePos = 0;
+        for (auto &node : children) {
+            if (relNode == node.get()) {
+                break;
+            }
+            ++relNodePos;
+        }
+        this->insertSplit(_split, relNodePos, _direction);
     }
 }
 
@@ -2180,60 +2212,58 @@ void SplitContainer::NodeContainer::setAxis(SplitDirection _direction)
     }
 }
 
-// TODO: Use index instead of iterator
 void SplitContainer::NodeContainer::insertSplit(Split *_split,
-                                                std::vector<std::shared_ptr<NodeBase> >::iterator _iter,
+                                                unsigned int _index,
                                                 SplitDirection _direction)
 {
     /* Initialize locals */
-    auto insertSplit = [_split](NodeContainer *container,
-                               std::vector<std::shared_ptr<NodeBase>>::iterator &it) -> void {
-        int i = it - container->children_.begin();
-        container->children_.emplace(it, std::make_shared<NodeData>(_split, container));
-        container->flexWeights_.emplace(container->flexWeights_.begin() + i,
+    auto insertSplit = [_split, _direction](NodeContainer *container,
+                                            unsigned int index) -> void {
+        if (index >= container->children_.size()) {
+            return;
+        }
+        if (_direction == SplitDirection::Right || _direction == SplitDirection::Below) {
+            ++index;
+        }
+        container->children_.emplace(container->children_.begin() + index,
+                                     std::make_shared<NodeData>(_split, container));
+        container->flexWeights_.emplace(container->flexWeights_.begin() + index,
                                         NodeContainer::defaultFlex_);
     };
-    auto nestNode = [_direction, &insertSplit](NodeContainer *container,
-                                              std::vector<std::shared_ptr<NodeBase>>::iterator &it,
-                                              bool isVertical) {
+
+    auto nestNode = [&insertSplit](NodeContainer *container,
+                                   unsigned int index,
+                                   bool isVertical) -> void {
         auto &children = container->children_;
         auto &flexWeights = container->flexWeights_;
-        bool advanceIter = (_direction == SplitDirection::Right ||
-                            _direction == SplitDirection::Below);
 
-        // end() will be used as the entry point for outer-boundary splitting
-        if (it == children.end()) {
+        // children[children.size()] or children.end() will be used as the entry point for outer-boundary splitting
+        if (index == children.size()) {
             /* Add a clone of myself to my children and set my new state */
             auto clone = std::make_shared<NodeContainer>(std::move(*container));
             clone->parent_ = container;
+
             container->isVertical_ = isVertical;
             children.emplace_back(clone);
             flexWeights.emplace_back(NodeContainer::defaultFlex_);
 
-            /* Insert new node */
-            auto newIt = children.begin();
-            advanceIter ? ++newIt : newIt;
-            insertSplit(container, newIt);
+            insertSplit(container, 0);
         }
         // TODO: Better wording?
-        // All valid iterator positions will be used for splitting from that node
+        // All valid indexes will be used for splitting from a node
         else {
-            int i = it - children.begin();
-
             /* Create a new container to hold the new split and the node being split from */
             auto newContainer = std::make_shared<NodeContainer>(container);
             newContainer->isVertical_ = isVertical;
-            // TODO: Use index instead of iterator to use emplace_back for code clarity
-            auto newIter = newContainer->children_.emplace(newContainer->children_.begin(), std::move(*it));
-            advanceIter ? ++newIter : newIter;
-            newContainer->flexWeights_.emplace(newContainer->flexWeights_.begin(), std::move(container->flexWeights_[i]));
-            insertSplit(newContainer.get(), newIter);
 
+            newContainer->children_.emplace_back(std::move(children[index]));
+            newContainer->flexWeights_.emplace_back(std::move(flexWeights[index]));
+            insertSplit(newContainer.get(), 0);
 
-            children[i] = std::move(newContainer);
-            flexWeights[i] = NodeContainer::defaultFlex_;
+            /* Nest the new container in us by overwriting the old node position */
+            children[index] = std::move(newContainer);
+            flexWeights[index] = NodeContainer::defaultFlex_;
         }
-
     };
 
     /* Insert new node */
@@ -2242,12 +2272,12 @@ void SplitContainer::NodeContainer::insertSplit(Split *_split,
         {
             case SplitDirection::Above:
             case SplitDirection::Below: {
-                insertSplit(this, _iter);
+                insertSplit(this, _index);
                 break;
             }
             case SplitDirection::Left:
             case SplitDirection::Right: {
-                nestNode(this, _iter, false);
+                nestNode(this, _index, false);
             }
         }
     }
@@ -2256,12 +2286,12 @@ void SplitContainer::NodeContainer::insertSplit(Split *_split,
         {
             case SplitDirection::Left:
             case SplitDirection::Right: {
-                insertSplit(this, _iter);
+                insertSplit(this, _index);
                 break;
             }
             case SplitDirection::Above:
             case SplitDirection::Below: {
-                nestNode(this, _iter, true);
+                nestNode(this, _index, true);
                 break;
             }
         }

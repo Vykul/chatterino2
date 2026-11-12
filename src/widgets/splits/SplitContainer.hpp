@@ -231,7 +231,7 @@ public:
         static constexpr qreal defaultFlex_ = 1.0;
 
         void insertSplit(Split *_split,
-                         std::vector<std::shared_ptr<NodeBase>>::iterator _iter,
+                         unsigned int _index,
                          SplitDirection _direction);
     };
 
