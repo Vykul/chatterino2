@@ -45,6 +45,7 @@ SplitContainer::SplitContainer(Notebook *parent)
     this->signalHolder_.managedConnect(
         Split::modifierStatusChanged, [this](auto modifiers) {
             this->layout();
+            this->layoutPoly();
 
             if (modifiers == SHOW_RESIZE_HANDLES_MODIFIERS)
             {
@@ -235,14 +236,16 @@ void SplitContainer::insertSplitPoly(Split *split, InsertOptionsPoly &&options)
     {
         assert(this->baseNodePoly_->isOrContainsNode(relativeTo));
 
-        auto *container = dynamic_cast<NodeContainer*>(relativeTo->parent_);
-        /* Container is a sub-container of root */
-        if (container) {
-            container->appendSplit(split, direction, relativeTo);
-        }
         /* Container is root */
-        else {
+        if (relativeTo->parent_ == nullptr) {
             this->baseNodePoly_->appendSplit(split, direction, relativeTo);
+        }
+        /* Container is a sub-container of root */
+        else {
+            auto *container = dynamic_cast<NodeContainer*>(relativeTo->parent_);
+            if (container) {
+                container->appendSplit(split, direction, relativeTo);
+            }
         }
     }
 
@@ -664,9 +667,56 @@ void SplitContainer::layoutPoly()
     const bool addSpacing =
         Split::modifierStatus == SHOW_ADD_SPLIT_REGIONS || this->isDragging_;
     this->baseNodePoly_->layout(addSpacing, this->scale(), dropRects, resizeRects);
-
     // TODO: std::move?
+    //
+    // SHOW_ADD_SPLIT_REGIONS only applies to the base node and will only ever be 2 rects,
+    // Change member type? union or variant?
+    // If so, pass new member reference as parameter to NodeContainer->layout instead
     this->dropRectsPoly_ = dropRects;
+
+    /* Create drop rects for each split */
+    for (Split *split : this->splits_)
+    {
+        const QRect &g = split->geometry();
+
+        // TODO: dynamic programming to avoid traversing the same nodes?
+        // Create tree traversal method that takes a function to perform on each node?
+        // Or create function to get flat vector of split nodes and iterate over that.
+        NodeBase *node = this->baseNodePoly_->findNodeContainingSplit(split);
+
+        // TODO: Create standardized drop rect scale
+        // left
+        dropRects.emplace_back(
+            QRect(g.left(), g.top(), g.width() / 3, g.height()),
+            PositionPoly(node, SplitDirection::Left));
+        // right
+        dropRects.emplace_back(QRect(g.right() - g.width() / 3, g.top(),
+                                     g.width() / 3, g.height()),
+                               PositionPoly(node, SplitDirection::Right));
+
+        // top
+        dropRects.emplace_back(
+            QRect(g.left(), g.top(), g.width(), g.height() / 2),
+            PositionPoly(node, SplitDirection::Above));
+        // bottom
+        dropRects.emplace_back(QRect(g.left(), g.bottom() - g.height() / 2,
+                                     g.width(), g.height() / 2),
+                               PositionPoly(node, SplitDirection::Below));
+    }
+
+    // NOTE: This will only be true if NodeContainer->layout returns because root is empty (no split nodes)
+    // and dropRects is empty, since split nodes are expected to be synchronized with this->splits.
+    // Consider nesting previous code in an else block, or something.
+    if (this->splits_.empty())
+    {
+        QRect g = this->rect();
+        dropRects.emplace_back(
+            QRect(g.left(), g.top(), g.width() - 1, g.height() - 1),
+            PositionPoly(nullptr, SplitDirection::Below));
+    }
+
+    /* Create resize handles for each split */
+
 }
 
 void SplitContainer::resizeEvent(QResizeEvent *event)
@@ -2136,9 +2186,6 @@ void SplitContainer::NodeContainer::insertSplit(Split *_split,
                                                 SplitDirection _direction)
 {
     /* Initialize locals */
-    auto &children = this->children_;
-    auto &flexWeights = this->flexWeights_;
-
     auto insertSplit = [_split](NodeContainer *container,
                                std::vector<std::shared_ptr<NodeBase>>::iterator &it) -> void {
         int i = it - container->children_.begin();

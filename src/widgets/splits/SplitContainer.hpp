@@ -220,12 +220,14 @@ public:
 
     private:
         NodeBase *preferedFocusTarget_{};
+        // TODO: Create bool enum for code clarity? If so, create isVertical() function
         bool isVertical_{false};
 
         // Parallel vectors
         std::vector<std::shared_ptr<NodeBase>> children_;
         std::vector<qreal> flexWeights_;
 
+        // TODO: fix casing
         static constexpr qreal defaultFlex_ = 1.0;
 
         void insertSplit(Split *_split,
