@@ -1896,8 +1896,8 @@ SplitContainer::NodeContainer::NodeContainer(NodeContainer *_parent)
 
 SplitContainer::NodeContainer::NodeContainer(NodeContainer &&other) noexcept
     : NodeBase(other.parent_)
+    , axis_(other.axis_)
     , preferedFocusTarget_(other.preferedFocusTarget_)
-    , isVertical_(other.isVertical_)
     , children_(std::move(other.children_))
     , flexWeights_(std::move(other.flexWeights_))
 {
@@ -1923,6 +1923,11 @@ const std::vector<std::shared_ptr<SplitContainer::NodeBase>> &SplitContainer::No
 qreal SplitContainer::NodeContainer::getChildrensTotalFlex()
 {
     return std::accumulate(this->flexWeights_.begin(), this->flexWeights_.end(), static_cast<qreal>(0));
+}
+
+bool SplitContainer::NodeContainer::isVertical()
+{
+    return this->axis_ == Axis::Vertical;
 }
 
 SplitContainer::NodeBase *SplitContainer::NodeContainer::findNodeContainingSplit(Split *_split)
@@ -1972,7 +1977,7 @@ void SplitContainer::NodeContainer::appendSplit(Split *_split, SplitDirection _d
         }
 
         unsigned int index = 0;
-        if (this->isVertical_) {
+        if (this->isVertical()) {
             switch (_direction) {
                 case SplitDirection::Left:
                 case SplitDirection::Right: {
@@ -2091,7 +2096,7 @@ void SplitContainer::NodeContainer::layout(bool addSpacing, float _scale, std::v
 
     // vars
     qreal minSize(48 * _scale);
-    const bool &isVertical = this->isVertical_;
+    const bool &isVertical = this->isVertical();
 
     this->clamp();
 
@@ -2203,11 +2208,11 @@ void SplitContainer::NodeContainer::setAxis(SplitDirection _direction)
     {
         case SplitDirection::Left:
         case SplitDirection::Right:
-            this->isVertical_ = false;
+            this->axis_ = Axis::Horizontal;
             break;
         case SplitDirection::Above:
         case SplitDirection::Below:
-            this->isVertical_ = true;
+            this->axis_ = Axis::Vertical;
             break;
     }
 }
@@ -2233,7 +2238,7 @@ void SplitContainer::NodeContainer::insertSplit(Split *_split,
 
     auto nestNode = [&insertNode](NodeContainer *container,
                                   unsigned int index,
-                                  bool isVertical) -> void {
+                                  Axis newAxis) -> void {
         auto &children = container->children_;
         auto &flexWeights = container->flexWeights_;
 
@@ -2243,17 +2248,17 @@ void SplitContainer::NodeContainer::insertSplit(Split *_split,
             auto clone = std::make_shared<NodeContainer>(std::move(*container));
             clone->parent_ = container;
 
-            container->isVertical_ = isVertical;
+            container->axis_ = newAxis;
             children.emplace_back(std::move(clone));
             flexWeights.emplace_back(NodeContainer::defaultFlex_);
             insertNode(container, 0);
         }
         // TODO: Better wording?
-        // All valid indexes will be used for splitting from a node
+        // All valid indexes will be used for intra-split splitting
         else {
             /* Create a new container to hold the new split and the node being split from */
             auto newContainer = std::make_shared<NodeContainer>(container);
-            newContainer->isVertical_ = isVertical;
+            newContainer->axis_ = newAxis;
 
             auto &nodeToNest = children[index];
             nodeToNest->parent_ = newContainer.get();
@@ -2269,7 +2274,7 @@ void SplitContainer::NodeContainer::insertSplit(Split *_split,
     };
 
     /* Insert new node */
-    if (this->isVertical_) {
+    if (this->isVertical()) {
         switch (_direction)
         {
             case SplitDirection::Above:
@@ -2279,7 +2284,7 @@ void SplitContainer::NodeContainer::insertSplit(Split *_split,
             }
             case SplitDirection::Left:
             case SplitDirection::Right: {
-                nestNode(this, _index, false);
+                nestNode(this, _index, Axis::Horizontal);
             }
         }
     }
@@ -2293,7 +2298,7 @@ void SplitContainer::NodeContainer::insertSplit(Split *_split,
             }
             case SplitDirection::Above:
             case SplitDirection::Below: {
-                nestNode(this, _index, true);
+                nestNode(this, _index, Axis::Vertical);
                 break;
             }
         }

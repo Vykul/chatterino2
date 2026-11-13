@@ -201,8 +201,12 @@ public:
         NodeContainer(NodeContainer *_parent);
         NodeContainer(NodeContainer &&other) noexcept;
 
+        enum class Axis : bool { Horizontal, Vertical };
+
         const std::vector<std::shared_ptr<NodeBase>> &getChildren();
         qreal getChildrensTotalFlex();
+        bool isVertical();
+
         NodeBase *findNodeContainingSplit(Split *_split) final;
         bool isOrContainsNode(NodeBase *_node) final;
 
@@ -219,9 +223,8 @@ public:
         void setAxis(SplitDirection _direction);
 
     private:
+        Axis axis_{Axis::Horizontal};
         NodeBase *preferedFocusTarget_{};
-        // TODO: Create bool enum for code clarity? If so, create isVertical() function
-        bool isVertical_{false};
 
         // Parallel vectors
         std::vector<std::shared_ptr<NodeBase>> children_;
