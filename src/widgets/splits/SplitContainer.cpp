@@ -2239,14 +2239,13 @@ void SplitContainer::NodeContainer::insertSplit(Split *_split,
 
         // children[children.size()] or children.end() will be used as the entry point for outer-boundary splitting
         if (index == children.size()) {
-            /* Add a clone of myself to my children and set my new state */
+            /* Transfer my state to a clone, then nest it in my children and set my new state */
             auto clone = std::make_shared<NodeContainer>(std::move(*container));
             clone->parent_ = container;
 
             container->isVertical_ = isVertical;
             children.emplace_back(std::move(clone));
             flexWeights.emplace_back(NodeContainer::defaultFlex_);
-
             insertNode(container, 0);
         }
         // TODO: Better wording?
@@ -2256,7 +2255,10 @@ void SplitContainer::NodeContainer::insertSplit(Split *_split,
             auto newContainer = std::make_shared<NodeContainer>(container);
             newContainer->isVertical_ = isVertical;
 
-            newContainer->children_.emplace_back(std::move(children[index]));
+            auto &nodeToNest = children[index];
+            nodeToNest->parent_ = newContainer.get();
+
+            newContainer->children_.emplace_back(std::move(nodeToNest));
             newContainer->flexWeights_.emplace_back(std::move(flexWeights[index]));
             insertNode(newContainer.get(), 0);
 
