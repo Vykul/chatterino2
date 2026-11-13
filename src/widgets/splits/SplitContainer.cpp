@@ -35,6 +35,7 @@ namespace chatterino {
 SplitContainer::SplitContainer(Notebook *parent)
     : BaseWidget(parent)
     , overlay_(this)
+    , overlayPoly_(this)
     , mouseOverPoint_(-10000, -10000)
     , baseNode_(std::make_shared<Node>())
     , baseNodePoly_(std::make_shared<NodeContainer>())
@@ -86,6 +87,8 @@ SplitContainer::SplitContainer(Notebook *parent)
     });
 
     this->overlay_.hide();
+    this->overlayPoly_.hide();
+    this->overlayPoly_.setDisabled(true);
 
     this->setMouseTracking(true);
     this->setAcceptDrops(true);
@@ -202,6 +205,7 @@ void SplitContainer::insertSplit(Split *split, InsertOptions &&options)
 
 void SplitContainer::insertSplitPoly(Split *split, InsertOptionsPoly &&options)
 {
+    // TODO: If options are mutually exclusive, create std::variant or something
     if (options.position)
     {
         // options.position must not be set together with any other options
@@ -422,9 +426,9 @@ SplitContainer::Position SplitContainer::releaseSplit(Split *split)
     return position;
 }
 
-SplitContainer::Position SplitContainer::releaseSplitPoly(Split *split)
+SplitContainer::PositionPoly SplitContainer::releaseSplitPoly(Split *split)
 {
-    Position position = this->baseNodePoly_->releaseSplit(split);
+    PositionPoly position = this->baseNodePoly_->releaseSplit(split);
     this->layoutPoly();
 
     return position;
@@ -715,6 +719,8 @@ void SplitContainer::layoutPoly()
             QRect(g.left(), g.top(), g.width() - 1, g.height() - 1),
             PositionPoly(nullptr, SplitDirection::Below));
     }
+
+    this->overlayPoly_.setRects(std::move(dropRects));
 
     /* Create resize handles for each split */
 
@@ -1691,13 +1697,17 @@ void SplitContainer::DropOverlay::dragLeaveEvent(QDragLeaveEvent * /*event*/)
 void SplitContainer::DropOverlay::dropEvent(QDropEvent *event)
 {
     Position *position = nullptr;
-    for (DropRect &rect : this->rects_)
+    PositionPoly *positionPoly = nullptr;
+    for (unsigned int i = 0; DropRect &rect : this->rects_)
     {
         if (rect.rect.contains(this->mouseOverPoint_))
         {
             position = &rect.position;
+            DropOverlayPoly &dop = this->parent_->overlayPoly_;
+            positionPoly = & dop.rects_[i].position;
             break;
         }
+        ++i;
     }
 
     if (!position)
@@ -1715,6 +1725,7 @@ void SplitContainer::DropOverlay::dropEvent(QDropEvent *event)
     }
 
     this->parent_->insertSplit(draggedSplit, {.position = *position});
+    this->parent_->insertSplitPoly(draggedSplit, {.position = *positionPoly});
     event->acceptProposedAction();
 
     this->mouseOverPoint_ = QPoint(-10000, -10000);
@@ -2037,37 +2048,64 @@ void SplitContainer::NodeContainer::appendSplit(Split *_split, SplitDirection _d
     }
 }
 
-SplitContainer::Position SplitContainer::NodeContainer::releaseSplit(Split *_split)
+// TODO: Implement returning valid position to allow drag events to release split
+SplitContainer::PositionPoly SplitContainer::NodeContainer::releaseSplit(Split *_split)
 {
+    // TODO: children_.empty() (and parent == nullptr) are only valid for root; consider moving to SplitContainer call
     if (_split == nullptr || this->children_.empty()) {
-        return Position();
+        return PositionPoly();
     }
 
     NodeBase *match = this->findNodeContainingSplit(_split);
     if (match == nullptr) {
-        return Position();
+        return PositionPoly();
     }
 
+    // TODO: Maybe implement a findContainerContainingSplit() function?
     NodeContainer* container = dynamic_cast<NodeContainer*>(match->parent_);
     if (container == nullptr) {
-        return Position();
+        return PositionPoly();
     }
 
     auto &children = container->children_;
-
-    auto it = std::find_if(children.begin(), children.end(), [match](auto &node) {
+    auto iter = std::find_if(children.begin(), children.end(), [match](auto &node) {
         return match == node.get();
     });
 
-    int i = it - children.begin();
-    children.erase(it);
-    container->flexWeights_.erase(container->flexWeights_.begin() + i);
+    unsigned int index = iter - children.begin();
+    if (children.size() == 1) {
+        children.erase(iter);
+        container->flexWeights_.erase(container->flexWeights_.begin() + index);
+        return PositionPoly();
+    }
 
-    // TODO: Need to recursively flatten container with parent if size becomes < 2
-    //       Size == 1, flatten
-    //       Size == 0, delete container node from tree
+    PositionPoly position;
+    auto &flexWeights = container->flexWeights_;
+    /* Remove from tail */
+    if (iter == children.end() - 1) {
+        position.direction_ = this->isVertical()
+                                      ? SplitDirection::Below
+                                      : SplitDirection::Right;
+        children.pop_back();
+        flexWeights.pop_back();
+        position.relativeNode_ = children.back().get();
+    }
+    else {
+        position.relativeNode_ = (iter + 1)->get();
+        position.direction_ = this->isVertical()
+                                      ? SplitDirection::Above
+                                      : SplitDirection::Left;
+        children.erase(iter);
+        flexWeights.erase(flexWeights.begin() + index);
+    }
 
-    return Position();
+    /* Check size after deletion to see if we should flatten with our parent */
+    // if (children.size() == 1) {
+    //     // TODO: Need to flatten container with parent if size becomes 1
+    //     //       Size == 1, flatten; delete container node from tree
+    // }
+
+    return position;
 }
 
 void SplitContainer::NodeContainer::clamp()
@@ -2345,6 +2383,20 @@ void SplitContainer::NodeData::layout(bool addSpacing, float _scale, std::vector
     QRect rect = this->geometry_.toRect();
     // this->split_->setGeometry(
     //     rect.marginsRemoved(QMargins(1, 1, 0, 0)));
+}
+
+SplitContainer::DropOverlayPoly::DropOverlayPoly(SplitContainer *_parent)
+    : QWidget(_parent)
+    // , mouseOverPoint_(-10000, -10000)
+    , parent_(_parent)
+{
+    // this->setMouseTracking(true);
+    // this->setAcceptDrops(true);
+}
+
+void SplitContainer::DropOverlayPoly::setRects(std::vector<DropRectPoly> _rects)
+{
+    this->rects_ = std::move(_rects);
 }
 
 }  // namespace chatterino

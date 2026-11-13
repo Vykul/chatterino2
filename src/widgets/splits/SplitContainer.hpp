@@ -67,6 +67,7 @@ public:
         }
 
         NodeBase *relativeNode_{nullptr};
+        // TODO: Create a default direction for better clarity?
         SplitDirection direction_{SplitDirection::Right};
 
         friend struct NodeBase;
@@ -212,7 +213,7 @@ public:
 
         void appendSplit(Split *_split, SplitDirection _direction);
         void appendSplit(Split *_split, SplitDirection _direction, NodeBase* relNode);
-        Position releaseSplit(Split *_split);
+        PositionPoly releaseSplit(Split *_split);
 
         // Clamps the flex values ensuring they're never below 0
         void clamp();
@@ -276,6 +277,19 @@ private:
         std::vector<DropRect> rects_;
         QPoint mouseOverPoint_;
         SplitContainer *parent_;
+    };
+    class DropOverlayPoly final : public QWidget
+    {
+    public:
+        DropOverlayPoly(SplitContainer *_parent = nullptr);
+        void setRects(std::vector<SplitContainer::DropRectPoly> _rects);
+
+    private:
+        std::vector<DropRectPoly> rects_;
+        SplitContainer *parent_;
+
+        // TODO: Remove this
+        friend class SplitContainer;
     };
 
     class ResizeHandle final : public QWidget
@@ -349,7 +363,7 @@ public:
     // Returns a pointer to the selected split
     Split *getSelectedSplit() const;
     Position releaseSplit(Split *split);
-    Position releaseSplitPoly(Split *split);
+    PositionPoly releaseSplitPoly(Split *split);
 
     Position deleteSplit(Split *split);
 
@@ -407,6 +421,7 @@ private:
     std::vector<DropRectPoly> dropRectsPoly_;
 
     DropOverlay overlay_;
+    DropOverlayPoly overlayPoly_;
     std::vector<std::unique_ptr<ResizeHandle>> resizeHandles_;
     QPoint mouseOverPoint_;
 

@@ -1280,7 +1280,9 @@ void Split::drag()
 
     startDraggingSplit();
 
+    // TODO: Can we just disable this split, then std::move it and re-enable it?
     auto originalLocation = container->releaseSplit(this);
+    auto originalLocationPoly = container->releaseSplitPoly(this);
     auto *drag = new QDrag(this);
     auto *mimeData = new QMimeData;
 
@@ -1293,6 +1295,7 @@ void Split::drag()
     {
         // The split wasn't dropped in a valid spot, return it to its original position
         container->insertSplit(this, {.position = originalLocation});
+        container->insertSplitPoly(this, {.position = originalLocationPoly});
     }
 
     stopDraggingSplit();
