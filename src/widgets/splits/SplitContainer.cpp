@@ -2244,7 +2244,7 @@ void SplitContainer::NodeContainer::insertSplit(Split *_split,
             clone->parent_ = container;
 
             container->isVertical_ = isVertical;
-            children.emplace_back(clone);
+            children.emplace_back(std::move(clone));
             flexWeights.emplace_back(NodeContainer::defaultFlex_);
 
             insertNode(container, 0);
