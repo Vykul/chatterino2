@@ -40,6 +40,7 @@ class SplitContainer final : public BaseWidget
 public:
     struct Node;
     struct NodeBase;
+    struct NodeData;
 
     struct Position final {
     private:
@@ -102,6 +103,18 @@ private:
         bool vertical;
 
         ResizeRect(const QRect &_rect, Node *_node, bool _vertical)
+            : rect(_rect)
+            , node(_node)
+            , vertical(_vertical)
+        {
+        }
+    };
+    struct ResizeRectPoly final {
+        QRect rect;
+        NodeData *node;
+        bool vertical;
+
+        ResizeRectPoly(const QRect &_rect, NodeData *_node, bool _vertical)
             : rect(_rect)
             , node(_node)
             , vertical(_vertical)
@@ -188,7 +201,7 @@ public:
         virtual qreal getSize(bool _isVertical) = 0;
         virtual void layout(bool addSpacing, float _scale,
                             std::vector<DropRectPoly> &dropRects,
-                            std::vector<ResizeRect> &resizeRects) = 0;
+                            std::vector<ResizeRectPoly> &resizeRects) = 0;
 
     private:
         NodeBase *parent_{};
@@ -220,7 +233,8 @@ public:
         qreal getSize(bool _isVertical) final;
         void layout(bool addSpacing, float _scale,
                     std::vector<DropRectPoly> &dropRects,
-                    std::vector<ResizeRect> &resizeRects) final;
+                    std::vector<ResizeRectPoly> &resizeRects) final;
+        void resetFlexWeights();
         void setAxis(SplitDirection _direction);
 
     private:
@@ -250,7 +264,7 @@ public:
 
         void layout(bool addSpacing, float _scale,
                     std::vector<DropRectPoly> &dropRects,
-                    std::vector<ResizeRect> &resizeRects) final;
+                    std::vector<ResizeRectPoly> &resizeRects) final;
 
     private:
         Split *split_{};
@@ -313,6 +327,21 @@ private:
 
         bool vertical_{};
         bool isMouseDown_ = false;
+    };
+    class ResizeHandlePoly final : public QWidget
+    {
+    public:
+        SplitContainer *parent;
+        NodeContainer* node{};
+
+        ResizeHandlePoly(SplitContainer *_parent = nullptr, NodeContainer *_node = nullptr);
+        void setVertical(bool isVertical);
+
+    private:
+        bool vertical_{};
+        bool isMouseDown_ = false;
+
+        void resetFlex();
     };
 
 public:
@@ -423,6 +452,7 @@ private:
     DropOverlay overlay_;
     DropOverlayPoly overlayPoly_;
     std::vector<std::unique_ptr<ResizeHandle>> resizeHandles_;
+    std::vector<std::unique_ptr<ResizeHandlePoly>> resizeHandlesPoly_;
     QPoint mouseOverPoint_;
 
     std::shared_ptr<Node> baseNode_;

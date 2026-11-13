@@ -667,7 +667,7 @@ void SplitContainer::layout()
 void SplitContainer::layoutPoly()
 {
     std::vector<DropRectPoly> dropRects;
-    std::vector<ResizeRect> resizeRects;
+    std::vector<ResizeRectPoly> resizeRects;
 
     const bool addSpacing =
         Split::modifierStatus == SHOW_ADD_SPLIT_REGIONS || this->isDragging_;
@@ -723,7 +723,35 @@ void SplitContainer::layoutPoly()
     this->overlayPoly_.setRects(std::move(dropRects));
 
     /* Create resize handles for each split */
+    if (this->resizeHandlesPoly_.size() < resizeRects.size())
+    {
+        while (this->resizeHandlesPoly_.size() < resizeRects.size())
+        {
+            this->resizeHandlesPoly_.push_back(
+                std::make_unique<ResizeHandlePoly>(this));
+        }
+    }
+    else if (this->resizeHandlesPoly_.size() > resizeRects.size())
+    {
+        this->resizeHandlesPoly_.resize(resizeRects.size());
+    }
 
+    for (size_t i = 0;
+         ResizeRectPoly &resizeRect : resizeRects)
+    {
+        // ResizeHandlePoly *handle = this->resizeHandlesPoly_[i].get();
+        // handle->setGeometry(resizeRect.rect);
+        // handle->setVertical(resizeRect.vertical);
+        // handle->node = resizeRect.node;
+
+        // if (Split::modifierStatus == SHOW_RESIZE_HANDLES_MODIFIERS)
+        // {
+        //     handle->show();
+        //     handle->raise();
+        // }
+
+        // i++;
+    }
 }
 
 void SplitContainer::resizeEvent(QResizeEvent *event)
@@ -2062,6 +2090,7 @@ SplitContainer::PositionPoly SplitContainer::NodeContainer::releaseSplit(Split *
     }
 
     // TODO: Maybe implement a findContainerContainingSplit() function?
+    // TODO: Maybe create class methods to call on the instance, to separate contexts on code like this
     NodeContainer* container = dynamic_cast<NodeContainer*>(match->parent_);
     if (container == nullptr) {
         return PositionPoly();
@@ -2125,9 +2154,10 @@ qreal SplitContainer::NodeContainer::getSize(bool _isVertical)
     //                        });
 }
 
-void SplitContainer::NodeContainer::layout(bool addSpacing, float _scale, std::vector<DropRectPoly> &dropRects, std::vector<ResizeRect> &resizeRects)
+void SplitContainer::NodeContainer::layout(bool addSpacing, float _scale, std::vector<DropRectPoly> &dropRects, std::vector<ResizeRectPoly> &resizeRects)
 {
     // Empty root
+    // TODO: Move check to SplitContainer?
     if(this->children_.empty()) {
         return;
     }
@@ -2138,7 +2168,7 @@ void SplitContainer::NodeContainer::layout(bool addSpacing, float _scale, std::v
 
     this->clamp();
 
-    // Shouldn't the minimum be 1?
+    // NOTE: Shouldn't the minimum be 1?
     qreal totalFlex = std::max<qreal>(0.0001, this->getChildrensTotalFlex());
     qreal totalSize = std::max<qreal>(0.0001, this->getSize(isVertical));
 
@@ -2201,12 +2231,23 @@ void SplitContainer::NodeContainer::layout(bool addSpacing, float _scale, std::v
 
         // set rect
         QRect rect = childRect.toRect();
-        isVertical ? rect.setTop(pos) : rect.setLeft(pos);
-        rect.setHeight(
-            std::max<qreal>(this->geometry_.height() / totalFlex *
-                                childFlex,
-                            minSize) *
-            sizeMultiplier);
+        if (isVertical) {
+            rect.setTop(pos);
+            rect.setHeight(
+                std::max<qreal>(this->geometry_.height() / totalFlex
+                                    * childFlex,
+                                minSize)
+                * sizeMultiplier);
+        }
+        else {
+            rect.setLeft(pos);
+            rect.setWidth(
+                std::max<qreal>(this->geometry_.width() / totalFlex
+                                    * childFlex,
+                                minSize)
+                * sizeMultiplier);
+        }
+
 
         if (child == this->children_.back())
         {
@@ -2231,12 +2272,21 @@ void SplitContainer::NodeContainer::layout(bool addSpacing, float _scale, std::v
                                            this->geometry_.top(),
                                            8,
                                            this->geometry_.height());
-            // resizeRects.push_back(
-            //     ResizeRect(r.toRect(), child.get(), isVertical));
+            auto *childData = dynamic_cast<NodeData*>(child.get());
+            if (childData) {
+                resizeRects.push_back(ResizeRectPoly(r.toRect(), childData, isVertical));
+            }
         }
 
         // normalize flex
         childFlex = childFlex / totalFlex * this->children_.size();
+    }
+}
+
+void SplitContainer::NodeContainer::resetFlexWeights()
+{
+    for (qreal &flex : this->flexWeights_) {
+        flex = NodeContainer::defaultFlex_;
     }
 }
 
@@ -2378,7 +2428,7 @@ SplitContainer::NodeBase *SplitContainer::NodeData::findNodeContainingSplit(Spli
     return nullptr;
 }
 
-void SplitContainer::NodeData::layout(bool addSpacing, float _scale, std::vector<DropRectPoly> &dropRects_, std::vector<ResizeRect> &resizeRects)
+void SplitContainer::NodeData::layout(bool addSpacing, float _scale, std::vector<DropRectPoly> &dropRects_, std::vector<ResizeRectPoly> &resizeRects)
 {
     QRect rect = this->geometry_.toRect();
     // this->split_->setGeometry(
@@ -2397,6 +2447,27 @@ SplitContainer::DropOverlayPoly::DropOverlayPoly(SplitContainer *_parent)
 void SplitContainer::DropOverlayPoly::setRects(std::vector<DropRectPoly> _rects)
 {
     this->rects_ = std::move(_rects);
+}
+
+SplitContainer::ResizeHandlePoly::ResizeHandlePoly(SplitContainer *_parent, NodeContainer *_node)
+    : QWidget(_parent)
+    // NOTE: Why have a shadow copy of a parent?
+    , parent(_parent)
+    , node(_node)
+{
+    this->setMouseTracking(false);
+    this->hide();
+}
+
+void SplitContainer::ResizeHandlePoly::setVertical(bool isVertical)
+{
+    this->vertical_ = isVertical;
+}
+
+void SplitContainer::ResizeHandlePoly::resetFlex()
+{
+    this->node->resetFlexWeights();
+    this->parent->layout();
 }
 
 }  // namespace chatterino
