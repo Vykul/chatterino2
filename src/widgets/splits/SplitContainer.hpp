@@ -225,6 +225,7 @@ public:
 
         // Parallel vectors
         std::vector<std::shared_ptr<NodeBase>> children_;
+        // TODO: Rename to flexes?
         std::vector<qreal> flexWeights_;
 
         // TODO: fix casing

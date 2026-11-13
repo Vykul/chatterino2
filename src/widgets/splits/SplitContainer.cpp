@@ -2021,14 +2021,14 @@ void SplitContainer::NodeContainer::appendSplit(Split *_split, SplitDirection _d
             this->setAxis(_direction);
         }
 
-        unsigned int relNodePos = 0;
+        unsigned int relNodeIndex = 0;
         for (auto &node : children) {
             if (relNode == node.get()) {
                 break;
             }
-            ++relNodePos;
+            ++relNodeIndex;
         }
-        this->insertSplit(_split, relNodePos, _direction);
+        this->insertSplit(_split, relNodeIndex, _direction);
     }
 }
 
@@ -2217,8 +2217,8 @@ void SplitContainer::NodeContainer::insertSplit(Split *_split,
                                                 SplitDirection _direction)
 {
     /* Initialize locals */
-    auto insertSplit = [_split, _direction](NodeContainer *container,
-                                            unsigned int index) -> void {
+    auto insertNode = [_split, _direction](NodeContainer *container,
+                                           unsigned int index) -> void {
         if (index >= container->children_.size()) {
             return;
         }
@@ -2231,9 +2231,9 @@ void SplitContainer::NodeContainer::insertSplit(Split *_split,
                                         NodeContainer::defaultFlex_);
     };
 
-    auto nestNode = [&insertSplit](NodeContainer *container,
-                                   unsigned int index,
-                                   bool isVertical) -> void {
+    auto nestNode = [&insertNode](NodeContainer *container,
+                                  unsigned int index,
+                                  bool isVertical) -> void {
         auto &children = container->children_;
         auto &flexWeights = container->flexWeights_;
 
@@ -2247,7 +2247,7 @@ void SplitContainer::NodeContainer::insertSplit(Split *_split,
             children.emplace_back(clone);
             flexWeights.emplace_back(NodeContainer::defaultFlex_);
 
-            insertSplit(container, 0);
+            insertNode(container, 0);
         }
         // TODO: Better wording?
         // All valid indexes will be used for splitting from a node
@@ -2258,7 +2258,7 @@ void SplitContainer::NodeContainer::insertSplit(Split *_split,
 
             newContainer->children_.emplace_back(std::move(children[index]));
             newContainer->flexWeights_.emplace_back(std::move(flexWeights[index]));
-            insertSplit(newContainer.get(), 0);
+            insertNode(newContainer.get(), 0);
 
             /* Nest the new container in us by overwriting the old node position */
             children[index] = std::move(newContainer);
@@ -2272,7 +2272,7 @@ void SplitContainer::NodeContainer::insertSplit(Split *_split,
         {
             case SplitDirection::Above:
             case SplitDirection::Below: {
-                insertSplit(this, _index);
+                insertNode(this, _index);
                 break;
             }
             case SplitDirection::Left:
@@ -2286,7 +2286,7 @@ void SplitContainer::NodeContainer::insertSplit(Split *_split,
         {
             case SplitDirection::Left:
             case SplitDirection::Right: {
-                insertSplit(this, _index);
+                insertNode(this, _index);
                 break;
             }
             case SplitDirection::Above:
