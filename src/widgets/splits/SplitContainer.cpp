@@ -723,35 +723,35 @@ void SplitContainer::layoutPoly()
     this->overlayPoly_.setRects(std::move(dropRects));
 
     /* Create resize handles for each split */
-    if (this->resizeHandlesPoly_.size() < resizeRects.size())
-    {
-        while (this->resizeHandlesPoly_.size() < resizeRects.size())
-        {
-            this->resizeHandlesPoly_.push_back(
-                std::make_unique<ResizeHandlePoly>(this));
-        }
-    }
-    else if (this->resizeHandlesPoly_.size() > resizeRects.size())
-    {
-        this->resizeHandlesPoly_.resize(resizeRects.size());
-    }
+    // if (this->resizeHandlesPoly_.size() < resizeRects.size())
+    // {
+    //     while (this->resizeHandlesPoly_.size() < resizeRects.size())
+    //     {
+    //         this->resizeHandlesPoly_.push_back(
+    //             std::make_unique<ResizeHandlePoly>(this));
+    //     }
+    // }
+    // else if (this->resizeHandlesPoly_.size() > resizeRects.size())
+    // {
+    //     this->resizeHandlesPoly_.resize(resizeRects.size());
+    // }
 
-    for (size_t i = 0;
-         ResizeRectPoly &resizeRect : resizeRects)
-    {
-        // ResizeHandlePoly *handle = this->resizeHandlesPoly_[i].get();
-        // handle->setGeometry(resizeRect.rect);
-        // handle->setVertical(resizeRect.vertical);
-        // handle->node = resizeRect.node;
+    // for (size_t i = 0;
+    //      ResizeRectPoly &resizeRect : resizeRects)
+    // {
+    //     ResizeHandlePoly *handle = this->resizeHandlesPoly_[i].get();
+    //     handle->setGeometry(resizeRect.rect);
+    //     handle->setVertical(resizeRect.vertical);
+    //     handle->node = resizeRect.node;
 
-        // if (Split::modifierStatus == SHOW_RESIZE_HANDLES_MODIFIERS)
-        // {
-        //     handle->show();
-        //     handle->raise();
-        // }
+    //     if (Split::modifierStatus == SHOW_RESIZE_HANDLES_MODIFIERS)
+    //     {
+    //         handle->show();
+    //         handle->raise();
+    //     }
 
-        // i++;
-    }
+    //     i++;
+    // }
 }
 
 void SplitContainer::resizeEvent(QResizeEvent *event)
@@ -1824,6 +1824,21 @@ void SplitContainer::ResizeHandle::mouseMoveEvent(QMouseEvent *event)
     assert(node != nullptr);
     assert(node->parent_ != nullptr);
 
+    NodeBase *nodePoly = this->parent->baseNodePoly_->findNodeContainingSplit(this->node->split_);
+    NodeContainer *containerPoly = dynamic_cast<NodeContainer*>(nodePoly->parent_);
+    auto childrenPoly = containerPoly->getChildren();
+    auto itPoly = std::ranges::find_if(childrenPoly, [this](const auto &n) {
+        auto splitNode = dynamic_cast<NodeData*>(n.get());
+        if (splitNode) {
+            return splitNode->getSplit() == this->node->split_;
+        }
+        return false;
+    });
+    assert(itPoly != childrenPoly.end());
+    unsigned int sourceIndex = itPoly - childrenPoly.begin();
+    qreal &sourceRegister = containerPoly->getFlexWeights()[sourceIndex];
+    qreal &neighborRegister = containerPoly->getFlexWeights()[sourceIndex - 1];
+
     const auto &siblings = this->node->parent_->getChildren();
     auto it = std::ranges::find_if(siblings, [this](const auto &n) {
         return n.get() == this->node;
@@ -1856,6 +1871,9 @@ void SplitContainer::ResizeHandle::mouseMoveEvent(QMouseEvent *event)
                          (bottomRight.y() - topLeft.y());
         this->node->flexV_ = totalFlexV - before->flexV_;
 
+        neighborRegister = before->flexV_;
+        sourceRegister = this->node->flexV_;
+
         this->parent->layout();
 
         // move handle
@@ -1867,6 +1885,9 @@ void SplitContainer::ResizeHandle::mouseMoveEvent(QMouseEvent *event)
         before->flexH_ = totalFlexH * (mousePoint.x() - topLeft.x()) /
                          (bottomRight.x() - topLeft.x());
         this->node->flexH_ = totalFlexH - before->flexH_;
+
+        neighborRegister = before->flexH_;
+        sourceRegister = this->node->flexH_;
 
         this->parent->layout();
 
@@ -1952,6 +1973,11 @@ SplitContainer::NodeContainer::NodeContainer(NodeContainer &&other) noexcept
     // isVertical_ should be set during use of other
     other.children_.clear();
     other.flexWeights_.clear();
+}
+
+std::vector<qreal> &SplitContainer::NodeContainer::getFlexWeights()
+{
+    return this->flexWeights_;
 }
 
 const std::vector<std::shared_ptr<SplitContainer::NodeBase>> &SplitContainer::NodeContainer::getChildren()
@@ -2449,25 +2475,38 @@ void SplitContainer::DropOverlayPoly::setRects(std::vector<DropRectPoly> _rects)
     this->rects_ = std::move(_rects);
 }
 
-SplitContainer::ResizeHandlePoly::ResizeHandlePoly(SplitContainer *_parent, NodeContainer *_node)
+SplitContainer::ResizeHandlePoly::ResizeHandlePoly(SplitContainer *_parent, NodeContainer::ContainerResizeView _containerView)
     : QWidget(_parent)
-    // NOTE: Why have a shadow copy of a parent?
-    , parent(_parent)
-    , node(_node)
+    , containerView_(_containerView)
 {
     this->setMouseTracking(false);
     this->hide();
 }
 
-void SplitContainer::ResizeHandlePoly::setVertical(bool isVertical)
-{
-    this->vertical_ = isVertical;
-}
-
 void SplitContainer::ResizeHandlePoly::resetFlex()
 {
-    this->node->resetFlexWeights();
-    this->parent->layout();
+    this->containerView_.callResetFlexWeights();
+    this->parent_->layoutPoly();
+}
+
+qreal &SplitContainer::NodeContainer::ContainerResizeView::sourceFlexRegister()
+{
+    return sourceFlexRegister_;
+}
+
+qreal &SplitContainer::NodeContainer::ContainerResizeView::neighborFlexRegister()
+{
+    return neighborFlexRegister_;
+}
+
+SplitContainer::NodeContainer::Axis &SplitContainer::NodeContainer::ContainerResizeView::axis()
+{
+    return axis_;
+}
+
+void SplitContainer::NodeContainer::ContainerResizeView::callResetFlexWeights()
+{
+    this->container_->resetFlexWeights();
 }
 
 }  // namespace chatterino

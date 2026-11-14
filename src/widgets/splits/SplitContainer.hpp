@@ -218,6 +218,7 @@ public:
         enum class Axis : bool { Horizontal, Vertical };
 
         const std::vector<std::shared_ptr<NodeBase>> &getChildren();
+        std::vector<qreal> &getFlexWeights();
         qreal getChildrensTotalFlex();
         bool isVertical();
 
@@ -237,7 +238,28 @@ public:
         void resetFlexWeights();
         void setAxis(SplitDirection _direction);
 
+        struct ContainerResizeView {
+            /* Interface for container's member variables */
+            qreal& sourceFlexRegister();
+            qreal& neighborFlexRegister();
+            Axis& axis();
+
+            /* Interface for container's member functions */
+            void callResetFlexWeights();
+
+        private:
+            friend struct NodeContainer;
+            explicit ContainerResizeView(NodeContainer &container);
+
+            NodeContainer * const container_;
+            qreal &sourceFlexRegister_; // Register for node that has a resize handle
+            qreal &neighborFlexRegister_; // Register for source's neighbor that is interlinked
+            Axis &axis_;
+        };
+
     private:
+        friend struct ContainerResizeView;
+
         Axis axis_{Axis::Horizontal};
         NodeBase *preferedFocusTarget_{};
 
@@ -328,17 +350,19 @@ private:
         bool vertical_{};
         bool isMouseDown_ = false;
     };
+    // NOTE: This should handle the resize rects of a NodeContainer
     class ResizeHandlePoly final : public QWidget
     {
     public:
-        SplitContainer *parent;
-        NodeContainer* node{};
-
-        ResizeHandlePoly(SplitContainer *_parent = nullptr, NodeContainer *_node = nullptr);
-        void setVertical(bool isVertical);
+        ResizeHandlePoly(SplitContainer *_parent,
+                         NodeContainer::ContainerResizeView _containerView);
+        // void setAxis(SplitContainer::NodeContainer::Axis _axis);
 
     private:
-        bool vertical_{};
+        // geometry is inherited from QWidget
+        NodeContainer::ContainerResizeView containerView_;
+        SplitContainer *parent_;
+
         bool isMouseDown_ = false;
 
         void resetFlex();
