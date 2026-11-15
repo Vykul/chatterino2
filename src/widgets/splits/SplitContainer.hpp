@@ -211,6 +211,8 @@ public:
     };
 
     struct NodeContainer final : public NodeBase {
+        struct ContainerResizeView;
+
         NodeContainer();
         NodeContainer(NodeContainer *_parent);
         NodeContainer(NodeContainer &&other) noexcept;
@@ -221,6 +223,7 @@ public:
         std::vector<qreal> &getFlexWeights();
         qreal getChildrensTotalFlex();
         bool isVertical();
+        std::optional<ContainerResizeView> tryGetContainerResizeView(NodeBase *_node);
 
         NodeBase *findNodeContainingSplit(Split *_split) final;
         bool isOrContainsNode(NodeBase *_node) final;
@@ -239,6 +242,8 @@ public:
         void setAxis(SplitDirection _direction);
 
         struct ContainerResizeView {
+            ContainerResizeView() = delete;
+
             /* Interface for container's member variables */
             qreal& sourceFlexRegister();
             qreal& neighborFlexRegister();
@@ -249,7 +254,10 @@ public:
 
         private:
             friend struct NodeContainer;
-            explicit ContainerResizeView(NodeContainer &container);
+            explicit ContainerResizeView(NodeContainer *_container,
+                                         qreal &_sourceFlexRegister,
+                                         qreal &_neighborFlexRegister,
+                                         Axis &_axis);
 
             NodeContainer * const container_;
             qreal &sourceFlexRegister_; // Register for node that has a resize handle
@@ -258,8 +266,6 @@ public:
         };
 
     private:
-        friend struct ContainerResizeView;
-
         Axis axis_{Axis::Horizontal};
         NodeBase *preferedFocusTarget_{};
 
@@ -356,7 +362,6 @@ private:
     public:
         ResizeHandlePoly(SplitContainer *_parent,
                          NodeContainer::ContainerResizeView _containerView);
-        // void setAxis(SplitContainer::NodeContainer::Axis _axis);
 
     private:
         // geometry is inherited from QWidget
@@ -366,6 +371,18 @@ private:
         bool isMouseDown_ = false;
 
         void resetFlex();
+    };
+
+    class ResizeOverlay final : public QWidget
+    {
+    public:
+        ResizeOverlay() = delete;
+        ResizeOverlay(SplitContainer *_parent);
+        void setHandles(std::vector<ResizeHandlePoly> &&_handles);
+
+    private:
+        std::vector<ResizeHandlePoly> handles_;
+        SplitContainer *parent_;
     };
 
 public:
@@ -475,8 +492,10 @@ private:
 
     DropOverlay overlay_;
     DropOverlayPoly overlayPoly_;
+    // NOTE: Why are these pointers?
     std::vector<std::unique_ptr<ResizeHandle>> resizeHandles_;
-    std::vector<std::unique_ptr<ResizeHandlePoly>> resizeHandlesPoly_;
+    ResizeOverlay resizeOverlay_;
+
     QPoint mouseOverPoint_;
 
     std::shared_ptr<Node> baseNode_;

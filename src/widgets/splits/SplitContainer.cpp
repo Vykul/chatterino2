@@ -36,6 +36,7 @@ SplitContainer::SplitContainer(Notebook *parent)
     : BaseWidget(parent)
     , overlay_(this)
     , overlayPoly_(this)
+    , resizeOverlay_(this)
     , mouseOverPoint_(-10000, -10000)
     , baseNode_(std::make_shared<Node>())
     , baseNodePoly_(std::make_shared<NodeContainer>())
@@ -84,6 +85,7 @@ SplitContainer::SplitContainer(Notebook *parent)
     this->signalHolder_.managedConnect(this->overlay_.dragEnded, [this]() {
         this->isDragging_ = false;
         this->layout();
+        // TODO: Add this->layoutPoly()?
     });
 
     this->overlay_.hide();
@@ -367,6 +369,7 @@ void SplitContainer::addSplit(Split *split)
         });
 
     this->layout();
+    // TODO: Add this->layoutPoly()?
 }
 
 void SplitContainer::setSelected(Split *split)
@@ -1995,6 +1998,21 @@ bool SplitContainer::NodeContainer::isVertical()
     return this->axis_ == Axis::Vertical;
 }
 
+std::optional<SplitContainer::NodeContainer::ContainerResizeView> SplitContainer::NodeContainer::tryGetContainerResizeView(NodeBase *_node)
+{
+    if (this->children_.size() >= 2) {
+        for (unsigned int i = 0; auto &n : this->children_) {
+            if (n.get() == _node) {
+                return std::optional<ContainerResizeView>(ContainerResizeView(this,
+                                                                              this->flexWeights_[i],
+                                                                              this->flexWeights_[i-1],
+                                                                              this->axis_));
+            }
+        }
+    }
+    return std::nullopt;
+}
+
 SplitContainer::NodeBase *SplitContainer::NodeContainer::findNodeContainingSplit(Split *_split)
 {
     for (const auto &node : this->children_)
@@ -2478,6 +2496,7 @@ void SplitContainer::DropOverlayPoly::setRects(std::vector<DropRectPoly> _rects)
 SplitContainer::ResizeHandlePoly::ResizeHandlePoly(SplitContainer *_parent, NodeContainer::ContainerResizeView _containerView)
     : QWidget(_parent)
     , containerView_(_containerView)
+    , parent_(_parent)
 {
     this->setMouseTracking(false);
     this->hide();
@@ -2507,6 +2526,26 @@ SplitContainer::NodeContainer::Axis &SplitContainer::NodeContainer::ContainerRes
 void SplitContainer::NodeContainer::ContainerResizeView::callResetFlexWeights()
 {
     this->container_->resetFlexWeights();
+}
+
+SplitContainer::NodeContainer::ContainerResizeView::ContainerResizeView(NodeContainer *_container,
+                                                                        qreal &_sourceFlexRegister,
+                                                                        qreal &_neighborFlexRegister,
+                                                                        Axis &_axis)
+    : container_(_container)
+    , sourceFlexRegister_(_sourceFlexRegister)
+    , neighborFlexRegister_(_neighborFlexRegister)
+    , axis_(_axis)
+{}
+
+SplitContainer::ResizeOverlay::ResizeOverlay(SplitContainer *_parent)
+    : QWidget(_parent)
+    , parent_(_parent)
+{}
+
+void SplitContainer::ResizeOverlay::setHandles(std::vector<ResizeHandlePoly> &&_handles)
+{
+    this->handles_= std::move(_handles);
 }
 
 }  // namespace chatterino
