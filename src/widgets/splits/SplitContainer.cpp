@@ -36,7 +36,6 @@ SplitContainer::SplitContainer(Notebook *parent)
     : BaseWidget(parent)
     , overlay_(this)
     , overlayPoly_(this)
-    , resizeOverlay_(this)
     , mouseOverPoint_(-10000, -10000)
     , baseNode_(std::make_shared<Node>())
     , baseNodePoly_(std::make_shared<NodeContainer>())
@@ -725,36 +724,31 @@ void SplitContainer::layoutPoly()
 
     this->overlayPoly_.setRects(std::move(dropRects));
 
-    /* Create resize handles for each split */
-    // if (this->resizeHandlesPoly_.size() < resizeRects.size())
-    // {
-    //     while (this->resizeHandlesPoly_.size() < resizeRects.size())
-    //     {
-    //         this->resizeHandlesPoly_.push_back(
-    //             std::make_unique<ResizeHandlePoly>(this));
-    //     }
-    // }
-    // else if (this->resizeHandlesPoly_.size() > resizeRects.size())
-    // {
-    //     this->resizeHandlesPoly_.resize(resizeRects.size());
-    // }
+    /* Prepare space to retrieve our new resize handles */
+    this->resizeHandlesPoly_.size() > resizeRects.size()
+        ? this->resizeHandlesPoly_.resize(resizeRects.size())
+        : this->resizeHandlesPoly_.reserve(resizeRects.size());
+    this->resizeHandlesPoly_.clear();
 
-    // for (size_t i = 0;
-    //      ResizeRectPoly &resizeRect : resizeRects)
-    // {
-    //     ResizeHandlePoly *handle = this->resizeHandlesPoly_[i].get();
-    //     handle->setGeometry(resizeRect.rect);
-    //     handle->setVertical(resizeRect.vertical);
-    //     handle->node = resizeRect.node;
-
-    //     if (Split::modifierStatus == SHOW_RESIZE_HANDLES_MODIFIERS)
-    //     {
-    //         handle->show();
-    //         handle->raise();
-    //     }
-
-    //     i++;
-    // }
+    /* Create a valid resize handle for each inter-split boundary */
+    for (ResizeRectPoly &resizeRect : resizeRects) {
+        auto resizeView = resizeRect.container->getContainerResizeView(resizeRect.childIndex);
+        if (!resizeView.isValid()) {
+            continue;
+        }
+        const auto &handle = this->resizeHandlesPoly_.emplace_back(
+                                 std::make_unique<ResizeHandlePoly>(
+                                 this,
+                                 resizeView,
+                                 resizeRect.rect
+                                 ));
+        /* Display the resize handle if requested */
+        if (Split::modifierStatus == SHOW_RESIZE_HANDLES_MODIFIERS)
+        {
+            handle->show();
+            handle->raise();
+        }
+    }
 }
 
 void SplitContainer::resizeEvent(QResizeEvent *event)
@@ -1998,19 +1992,12 @@ bool SplitContainer::NodeContainer::isVertical()
     return this->axis_ == Axis::Vertical;
 }
 
-std::optional<SplitContainer::NodeContainer::ContainerResizeView> SplitContainer::NodeContainer::tryGetContainerResizeView(NodeBase *_node)
+SplitContainer::NodeContainer::ContainerResizeView SplitContainer::NodeContainer::getContainerResizeView(size_t _nodeIndex)
 {
-    if (this->children_.size() >= 2) {
-        for (unsigned int i = 0; auto &n : this->children_) {
-            if (n.get() == _node) {
-                return std::optional<ContainerResizeView>(ContainerResizeView(this,
-                                                                              this->flexWeights_[i],
-                                                                              this->flexWeights_[i-1],
-                                                                              this->axis_));
-            }
-        }
+    if (_nodeIndex < this->children_.size()) {
+        return ContainerResizeView(this, _nodeIndex);
     }
-    return std::nullopt;
+    return ContainerResizeView();
 }
 
 SplitContainer::NodeBase *SplitContainer::NodeContainer::findNodeContainingSplit(Split *_split)
@@ -2200,9 +2187,11 @@ qreal SplitContainer::NodeContainer::getSize(bool _isVertical)
 
 void SplitContainer::NodeContainer::layout(bool addSpacing, float _scale, std::vector<DropRectPoly> &dropRects, std::vector<ResizeRectPoly> &resizeRects)
 {
+    auto &children = this->children_;
+
     // Empty root
     // TODO: Move check to SplitContainer?
-    if(this->children_.empty()) {
+    if(children.empty()) {
         return;
     }
 
@@ -2269,8 +2258,8 @@ void SplitContainer::NodeContainer::layout(bool addSpacing, float _scale, std::v
 
     // iterate children
     auto pos = int(isVertical ? childRect.top() : childRect.left());
-    for (size_t i = 0; i < this->children_.size(); ++i) {
-        auto &child = this->children_.at(i);
+    for (size_t i = 0; i < children.size(); ++i) {
+        auto &child = children.at(i);
         auto &childFlex = this->flexWeights_.at(i);
 
         // set rect
@@ -2293,7 +2282,7 @@ void SplitContainer::NodeContainer::layout(bool addSpacing, float _scale, std::v
         }
 
 
-        if (child == this->children_.back())
+        if (child == children.back())
         {
             rect.setRight(childRect.right() - 1);
             rect.setBottom(childRect.bottom() - 1);
@@ -2306,7 +2295,7 @@ void SplitContainer::NodeContainer::layout(bool addSpacing, float _scale, std::v
 
 
         // add resize rect
-        if (child != this->children_.front())
+        if (child != children.front())
         {
             QRectF r = isVertical ? QRectF(this->geometry_.left(),
                                            child->geometry_.top() - 4,
@@ -2316,14 +2305,13 @@ void SplitContainer::NodeContainer::layout(bool addSpacing, float _scale, std::v
                                            this->geometry_.top(),
                                            8,
                                            this->geometry_.height());
-            auto *childData = dynamic_cast<NodeData*>(child.get());
-            if (childData) {
-                resizeRects.push_back(ResizeRectPoly(r.toRect(), childData, isVertical));
-            }
+            resizeRects.push_back(ResizeRectPoly(r.toRect(), this, i));
+
+
         }
 
         // normalize flex
-        childFlex = childFlex / totalFlex * this->children_.size();
+        childFlex = childFlex / totalFlex * children.size();
     }
 }
 
@@ -2493,11 +2481,12 @@ void SplitContainer::DropOverlayPoly::setRects(std::vector<DropRectPoly> _rects)
     this->rects_ = std::move(_rects);
 }
 
-SplitContainer::ResizeHandlePoly::ResizeHandlePoly(SplitContainer *_parent, NodeContainer::ContainerResizeView _containerView)
+SplitContainer::ResizeHandlePoly::ResizeHandlePoly(SplitContainer *_parent, NodeContainer::ContainerResizeView _containerView, QRect _rect)
     : QWidget(_parent)
     , containerView_(_containerView)
     , parent_(_parent)
 {
+    this->setGeometry(_rect);
     this->setMouseTracking(false);
     this->hide();
 }
@@ -2508,17 +2497,17 @@ void SplitContainer::ResizeHandlePoly::resetFlex()
     this->parent_->layoutPoly();
 }
 
-qreal &SplitContainer::NodeContainer::ContainerResizeView::sourceFlexRegister()
+qreal *SplitContainer::NodeContainer::ContainerResizeView::sourceFlexRegister()
 {
     return sourceFlexRegister_;
 }
 
-qreal &SplitContainer::NodeContainer::ContainerResizeView::neighborFlexRegister()
+qreal *SplitContainer::NodeContainer::ContainerResizeView::neighborFlexRegister()
 {
     return neighborFlexRegister_;
 }
 
-SplitContainer::NodeContainer::Axis &SplitContainer::NodeContainer::ContainerResizeView::axis()
+SplitContainer::NodeContainer::Axis SplitContainer::NodeContainer::ContainerResizeView::axis()
 {
     return axis_;
 }
@@ -2528,24 +2517,26 @@ void SplitContainer::NodeContainer::ContainerResizeView::callResetFlexWeights()
     this->container_->resetFlexWeights();
 }
 
-SplitContainer::NodeContainer::ContainerResizeView::ContainerResizeView(NodeContainer *_container,
-                                                                        qreal &_sourceFlexRegister,
-                                                                        qreal &_neighborFlexRegister,
-                                                                        Axis &_axis)
+SplitContainer::NodeContainer::ContainerResizeView::ContainerResizeView()
+    : container_{nullptr}
+    , sourceFlexRegister_{nullptr}
+    , neighborFlexRegister_{nullptr}
+    // TODO: default axis
+    , axis_{Axis::Horizontal}
+{};
+
+SplitContainer::NodeContainer::ContainerResizeView::ContainerResizeView(NodeContainer *_container, size_t _nodeIndex)
     : container_(_container)
-    , sourceFlexRegister_(_sourceFlexRegister)
-    , neighborFlexRegister_(_neighborFlexRegister)
-    , axis_(_axis)
+    , sourceFlexRegister_(&container_->flexWeights_[_nodeIndex])
+    , neighborFlexRegister_(&container_->flexWeights_[_nodeIndex-1])
+    , axis_(_container->axis_)
 {}
 
-SplitContainer::ResizeOverlay::ResizeOverlay(SplitContainer *_parent)
-    : QWidget(_parent)
-    , parent_(_parent)
-{}
-
-void SplitContainer::ResizeOverlay::setHandles(std::vector<ResizeHandlePoly> &&_handles)
+bool SplitContainer::NodeContainer::ContainerResizeView::isValid() const
 {
-    this->handles_= std::move(_handles);
+    return (this->container_ != nullptr) &&
+           (this->sourceFlexRegister_ != nullptr) &&
+           (this->neighborFlexRegister_ != nullptr);
 }
 
 }  // namespace chatterino

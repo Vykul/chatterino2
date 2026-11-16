@@ -40,6 +40,7 @@ class SplitContainer final : public BaseWidget
 public:
     struct Node;
     struct NodeBase;
+    struct NodeContainer;
     struct NodeData;
 
     struct Position final {
@@ -111,13 +112,13 @@ private:
     };
     struct ResizeRectPoly final {
         QRect rect;
-        NodeData *node;
-        bool vertical;
+        NodeContainer *container;
+        size_t childIndex;
 
-        ResizeRectPoly(const QRect &_rect, NodeData *_node, bool _vertical)
+        ResizeRectPoly(const QRect &_rect, NodeContainer *_container, size_t _childIndex)
             : rect(_rect)
-            , node(_node)
-            , vertical(_vertical)
+            , container(_container)
+            , childIndex(_childIndex)
         {
         }
     };
@@ -223,7 +224,7 @@ public:
         std::vector<qreal> &getFlexWeights();
         qreal getChildrensTotalFlex();
         bool isVertical();
-        std::optional<ContainerResizeView> tryGetContainerResizeView(NodeBase *_node);
+        ContainerResizeView getContainerResizeView(size_t _nodeIndex);
 
         NodeBase *findNodeContainingSplit(Split *_split) final;
         bool isOrContainsNode(NodeBase *_node) final;
@@ -242,27 +243,27 @@ public:
         void setAxis(SplitDirection _direction);
 
         struct ContainerResizeView {
-            ContainerResizeView() = delete;
+            bool isValid() const;
 
             /* Interface for container's member variables */
-            qreal& sourceFlexRegister();
-            qreal& neighborFlexRegister();
-            Axis& axis();
+            qreal* sourceFlexRegister();
+            qreal* neighborFlexRegister();
+            Axis axis();
 
             /* Interface for container's member functions */
             void callResetFlexWeights();
 
         private:
             friend struct NodeContainer;
-            explicit ContainerResizeView(NodeContainer *_container,
-                                         qreal &_sourceFlexRegister,
-                                         qreal &_neighborFlexRegister,
-                                         Axis &_axis);
 
-            NodeContainer * const container_;
-            qreal &sourceFlexRegister_; // Register for node that has a resize handle
-            qreal &neighborFlexRegister_; // Register for source's neighbor that is interlinked
-            Axis &axis_;
+
+            ContainerResizeView();
+            ContainerResizeView(NodeContainer *_container, size_t _nodeIndex);
+
+            NodeContainer* const container_{};
+            qreal* const sourceFlexRegister_{}; // Register for node that has a resize handle
+            qreal* const neighborFlexRegister_{}; // Register for source's neighbor that is interlinked
+            const Axis axis_;
         };
 
     private:
@@ -361,28 +362,17 @@ private:
     {
     public:
         ResizeHandlePoly(SplitContainer *_parent,
-                         NodeContainer::ContainerResizeView _containerView);
+                         NodeContainer::ContainerResizeView _containerView,
+                         QRect _rect);
 
     private:
-        // geometry is inherited from QWidget
-        NodeContainer::ContainerResizeView containerView_;
-        SplitContainer *parent_;
+        friend class SplitContainer;
 
+        NodeContainer::ContainerResizeView containerView_;
+        SplitContainer *parent_{};
         bool isMouseDown_ = false;
 
         void resetFlex();
-    };
-
-    class ResizeOverlay final : public QWidget
-    {
-    public:
-        ResizeOverlay() = delete;
-        ResizeOverlay(SplitContainer *_parent);
-        void setHandles(std::vector<ResizeHandlePoly> &&_handles);
-
-    private:
-        std::vector<ResizeHandlePoly> handles_;
-        SplitContainer *parent_;
     };
 
 public:
@@ -492,9 +482,8 @@ private:
 
     DropOverlay overlay_;
     DropOverlayPoly overlayPoly_;
-    // NOTE: Why are these pointers?
     std::vector<std::unique_ptr<ResizeHandle>> resizeHandles_;
-    ResizeOverlay resizeOverlay_;
+    std::vector<std::unique_ptr<ResizeHandlePoly>> resizeHandlesPoly_;
 
     QPoint mouseOverPoint_;
 
