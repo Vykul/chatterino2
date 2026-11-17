@@ -1967,7 +1967,8 @@ SplitContainer::NodeContainer::NodeContainer(NodeContainer &&other) noexcept
     /* Set state of other */
     other.parent_ = nullptr;
     other.preferedFocusTarget_ = nullptr;
-    // isVertical_ should be set during use of other
+    // axis_ will be set if other adds children
+    // NOTE: does this even do anything?
     other.children_.clear();
     other.flexWeights_.clear();
 }
@@ -2128,42 +2129,117 @@ SplitContainer::PositionPoly SplitContainer::NodeContainer::releaseSplit(Split *
     }
 
     auto &children = container->children_;
-    auto iter = std::find_if(children.begin(), children.end(), [match](auto &node) {
-        return match == node.get();
-    });
-
-    unsigned int index = iter - children.begin();
     if (children.size() == 1) {
-        children.erase(iter);
-        container->flexWeights_.erase(container->flexWeights_.begin() + index);
-        return PositionPoly();
+        children.pop_back();
+        container->flexWeights_.pop_back();
+        // TODO: default split direction
+        // Parameterized constructor called to show intent.
+        return PositionPoly(nullptr, SplitDirection::Right);
     }
 
     PositionPoly position;
     auto &flexWeights = container->flexWeights_;
-    /* Remove from tail */
-    if (iter == children.end() - 1) {
-        position.direction_ = this->isVertical()
-                                      ? SplitDirection::Below
-                                      : SplitDirection::Right;
-        children.pop_back();
-        flexWeights.pop_back();
-        position.relativeNode_ = children.back().get();
+    auto iter = std::find_if(children.begin(), children.end(), [match](auto &node) {
+        return match == node.get();
+    });
+    bool splitIsTail = iter == children.end() - 1;
+
+    /* Flatten the container after removing the split, if needed. */
+    if (children.size() == 2) {
+        // TODO: Create std::type_index type() { return typeid(*this); } function,
+        //       to compare type before dynamic casting it? Could be used
+        //       in other places also.
+
+        if (splitIsTail) {
+            children.pop_back();
+            flexWeights.pop_back();
+        }
+        else {
+            children.erase(children.begin());
+            flexWeights.erase(flexWeights.begin());
+        }
+
+        // Create a shared pointer to prevent subcontainer from being destroyed
+        // when reassigning container's children.
+        std::shared_ptr<NodeContainer> subcontainer = std::dynamic_pointer_cast<NodeContainer>(children.back());
+        /* Container must be perpendicularly flattened. It will consume subcontainer's state. */
+        if (subcontainer) {
+            if (splitIsTail) {
+                position.direction_ = subcontainer->isVertical()
+                                      ? SplitDirection::Right
+                                      : SplitDirection::Below;
+            }
+            else {
+                position.direction_ = subcontainer->isVertical()
+                                          ? SplitDirection::Left
+                                          : SplitDirection::Above;
+            }
+
+            /* Set new state. */
+            container->parent_ = subcontainer->parent_;
+            container->axis_ = subcontainer->axis_;
+            container->preferedFocusTarget_ = subcontainer->preferedFocusTarget_;
+            container->children_ = std::move(subcontainer->children_);
+            container->flexWeights_ = std::move(subcontainer->flexWeights_);
+            for (const auto &node : container->children_)
+            {
+                node->parent_ = container;
+            }
+            position.relativeNode_ = container;
+
+            /* Set state of other. */
+            // TODO: If children is changed to unique_ptr, can probably remove this.
+            subcontainer->parent_ = nullptr;
+            subcontainer->preferedFocusTarget_ = nullptr;
+            // axis_ should be set during use of other
+            // NOTE: does this even do anything?
+            subcontainer->children_.clear();
+            subcontainer->flexWeights_.clear();
+
+            // TODO: This code must call 'parent_' to check if 'container' should be
+            //    parallelly flattened. E.g., Horizontal Container with a
+            //    split node and 'container', which just became a horizontal container
+            //    after being perpendicularly flattened. However, the current function
+            //    of Node::releaseSplit does not do this. This function will
+            //    mirror that during development and testing for the refactor.
+            //    The parallel flattening will be added after.
+        }
+        /* Remaining child is not a container; keep container. */
+        else {
+            if (splitIsTail) {
+                position.direction_ = container->isVertical()
+                                          ? SplitDirection::Below
+                                          : SplitDirection::Right;
+            }
+            else {
+                position.direction_ = container->isVertical()
+                                          ? SplitDirection::Above
+                                          : SplitDirection::Left;
+            }
+            position.relativeNode_ = children.back().get();
+        }
     }
+    /* Size > 2; Only remove the split. */
     else {
-        position.relativeNode_ = (iter + 1)->get();
-        position.direction_ = this->isVertical()
+        /* Remove from tail. */
+        if (splitIsTail) {
+            children.pop_back();
+            flexWeights.pop_back();
+            position.direction_ = this->isVertical()
+                                          ? SplitDirection::Below
+                                          : SplitDirection::Right;
+            position.relativeNode_ = children.back().get();
+        }
+        else {
+            position.direction_ = this->isVertical()
                                       ? SplitDirection::Above
                                       : SplitDirection::Left;
-        children.erase(iter);
-        flexWeights.erase(flexWeights.begin() + index);
+            position.relativeNode_ = (iter + 1)->get();
+            unsigned int index = iter - children.begin();
+            children.erase(iter);
+            flexWeights.erase(flexWeights.begin() + index);
+        }
     }
-
-    /* Check size after deletion to see if we should flatten with our parent */
-    // if (children.size() == 1) {
-    //     // TODO: Need to flatten container with parent if size becomes 1
-    //     //       Size == 1, flatten; delete container node from tree
-    // }
 
     return position;
 }
