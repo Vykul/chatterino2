@@ -912,6 +912,7 @@ void SplitContainer::dragEnterEvent(QDragEnterEvent *event)
 
     this->isDragging_ = true;
     this->layout();
+    this->layoutPoly();
 
     this->overlay_.setGeometry(this->rect());
     this->overlay_.show();
