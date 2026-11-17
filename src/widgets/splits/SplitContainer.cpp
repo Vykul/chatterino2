@@ -1824,8 +1824,7 @@ void SplitContainer::ResizeHandle::mouseMoveEvent(QMouseEvent *event)
     NodeContainer *containerPoly = nodePoly->parent_;
     auto childrenPoly = containerPoly->getChildren();
     auto itPoly = std::ranges::find_if(childrenPoly, [this](const auto &n) {
-        auto splitNode = dynamic_cast<NodeData*>(n.get());
-        if (splitNode) {
+        if (auto splitNode = dynamic_cast<NodeData*>(n.get())) {
             return splitNode->getSplit() == this->node->split_;
         }
         return false;
@@ -1972,6 +1971,11 @@ SplitContainer::NodeContainer::NodeContainer(NodeContainer &&other) noexcept
     other.flexWeights_.clear();
 }
 
+std::vector<std::shared_ptr<SplitContainer::NodeBase>> SplitContainer::NodeContainer::getFlattenedSelf()
+{
+    return this->children_;
+}
+
 std::vector<qreal> &SplitContainer::NodeContainer::getFlexWeights()
 {
     return this->flexWeights_;
@@ -2108,6 +2112,16 @@ void SplitContainer::NodeContainer::appendSplit(Split *_split, SplitDirection _d
     }
 }
 
+void SplitContainer::NodeContainer::flattenChildren()
+{
+    std::vector<std::shared_ptr<NodeBase>> newChildren;
+    newChildren.reserve(this->children_.size());
+    for (auto &node : this->children_) {
+        newChildren.insert_range(newChildren.end(), node->getFlattenedSelf());
+    }
+    this->children_ = std::move(newChildren);
+}
+
 // TODO: Implement returning valid position to allow drag events to release split
 SplitContainer::PositionPoly SplitContainer::NodeContainer::releaseSplit(Split *_split)
 {
@@ -2142,10 +2156,6 @@ SplitContainer::PositionPoly SplitContainer::NodeContainer::releaseSplit(Split *
 
     /* Flatten the container after removing the split, if needed. */
     if (children.size() == 2) {
-        // TODO: Create std::type_index type() { return typeid(*this); } function,
-        //       to compare type before dynamic casting it? Could be used
-        //       in other places also.
-
         if (splitIsTail) {
             children.pop_back();
             flexWeights.pop_back();
@@ -2155,11 +2165,10 @@ SplitContainer::PositionPoly SplitContainer::NodeContainer::releaseSplit(Split *
             flexWeights.erase(flexWeights.begin());
         }
 
+        /* Container must be perpendicularly flattened. It will consume subcontainer's state. */
         // Create a shared pointer to prevent subcontainer from being destroyed
         // when reassigning container's children.
-        std::shared_ptr<NodeContainer> subcontainer = std::dynamic_pointer_cast<NodeContainer>(children.back());
-        /* Container must be perpendicularly flattened. It will consume subcontainer's state. */
-        if (subcontainer) {
+        if (auto subcontainer = std::dynamic_pointer_cast<NodeContainer>(children.back())) {
             if (splitIsTail) {
                 position.direction_ = subcontainer->isVertical()
                                       ? SplitDirection::Right
@@ -2184,7 +2193,8 @@ SplitContainer::PositionPoly SplitContainer::NodeContainer::releaseSplit(Split *
             position.relativeNode_ = container;
 
             /* Set state of other. */
-            // TODO: If children is changed to unique_ptr, can probably remove this.
+            // TODO: If children is changed to unique_ptr, can probably remove this block.
+            // NOTE: Probably must be shared_ptr for container resize views and other cases.
             subcontainer->parent_ = nullptr;
             subcontainer->preferedFocusTarget_ = nullptr;
             // axis_ should be set during use of other
@@ -2213,6 +2223,11 @@ SplitContainer::PositionPoly SplitContainer::NodeContainer::releaseSplit(Split *
                                           : SplitDirection::Left;
             }
             position.relativeNode_ = children.back().get();
+
+            /* Parallelly flatten supercontainer's children */
+            if (auto *supercontainer = container->parent_) {
+                supercontainer->flattenChildren();
+            }
         }
     }
     /* Size > 2; Only remove the split. */
@@ -2516,6 +2531,11 @@ SplitContainer::NodeData::NodeData(Split *_split, NodeContainer *_parent)
 Split *SplitContainer::NodeData::getSplit() const
 {
     return this->split_;
+}
+
+std::vector<std::shared_ptr<SplitContainer::NodeBase>> SplitContainer::NodeData::getFlattenedSelf()
+{
+    return std::vector<std::shared_ptr<SplitContainer::NodeBase>>{ std::make_shared<NodeData>(this->split_, this->parent_) };
 }
 
 qreal SplitContainer::NodeData::getSize(bool _isVertical)
