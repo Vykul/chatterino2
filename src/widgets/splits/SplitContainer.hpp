@@ -190,12 +190,12 @@ public:
     struct NodeBase : public std::enable_shared_from_this<NodeBase> {
     protected:
         NodeBase();
-        NodeBase(NodeBase *_parent);
+        NodeBase(NodeContainer *_parent);
 
     public:
         virtual ~NodeBase() = default;
 
-        NodeBase *getParent() const;
+        NodeContainer *getParent() const;
         virtual NodeBase *findNodeContainingSplit(Split *_split) = 0;
         virtual bool isOrContainsNode(NodeBase *_node);
 
@@ -205,7 +205,7 @@ public:
                             std::vector<ResizeRectPoly> &resizeRects) = 0;
 
     private:
-        NodeBase *parent_{};
+        NodeContainer *parent_{};
         QRectF geometry_;
 
         friend class SplitContainer;
@@ -285,7 +285,7 @@ public:
 
     struct NodeData final : public NodeBase {
         NodeData();
-        NodeData(Split *_split, NodeBase *_parent);
+        NodeData(Split *_split, NodeContainer *_parent);
 
         Split *getSplit() const;
         qreal getSize(bool _isVertical) final; // Have to move this to container since it depends on isVertical?

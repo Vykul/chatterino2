@@ -247,10 +247,8 @@ void SplitContainer::insertSplitPoly(Split *split, InsertOptionsPoly &&options)
         }
         /* relativeTo is contained in a sub-container of root (including itself) */
         else {
-            auto *container = dynamic_cast<NodeContainer*>(relativeTo->parent_);
-            if (container) {
-                container->appendSplit(split, direction, relativeTo);
-            }
+            NodeContainer *container = relativeTo->parent_;
+            container->appendSplit(split, direction, relativeTo);
         }
     }
 
@@ -1823,7 +1821,7 @@ void SplitContainer::ResizeHandle::mouseMoveEvent(QMouseEvent *event)
     assert(node->parent_ != nullptr);
 
     NodeBase *nodePoly = this->parent->baseNodePoly_->findNodeContainingSplit(this->node->split_);
-    NodeContainer *containerPoly = dynamic_cast<NodeContainer*>(nodePoly->parent_);
+    NodeContainer *containerPoly = nodePoly->parent_;
     auto childrenPoly = containerPoly->getChildren();
     auto itPoly = std::ranges::find_if(childrenPoly, [this](const auto &n) {
         auto splitNode = dynamic_cast<NodeData*>(n.get());
@@ -1916,7 +1914,7 @@ void SplitContainer::ResizeHandle::resetFlex()
 // NodeBase
 //
 
-SplitContainer::NodeBase *SplitContainer::NodeBase::getParent() const
+SplitContainer::NodeContainer *SplitContainer::NodeBase::getParent() const
 {
     return this->parent_;
 }
@@ -1931,7 +1929,7 @@ SplitContainer::NodeBase::NodeBase()
 {
 }
 
-SplitContainer::NodeBase::NodeBase(NodeBase *_parent)
+SplitContainer::NodeBase::NodeBase(NodeContainer *_parent)
     : parent_(_parent)
 {
 }
@@ -2048,6 +2046,7 @@ void SplitContainer::NodeContainer::appendSplit(Split *_split, SplitDirection _d
             this->setAxis(_direction);
         }
 
+        // "Index = 0" handles the head-bound direction case for each axis
         unsigned int index = 0;
         if (this->isVertical()) {
             switch (_direction) {
@@ -2124,11 +2123,7 @@ SplitContainer::PositionPoly SplitContainer::NodeContainer::releaseSplit(Split *
 
     // TODO: Maybe implement a findContainerContainingSplit() function?
     // TODO: Maybe create class methods to call on the instance, to separate contexts on code like this
-    NodeContainer* container = dynamic_cast<NodeContainer*>(match->parent_);
-    if (container == nullptr) {
-        return PositionPoly();
-    }
-
+    NodeContainer* container = match->parent_;
     auto &children = container->children_;
     if (children.size() == 1) {
         children.pop_back();
@@ -2512,7 +2507,7 @@ SplitContainer::NodeData::NodeData()
 {
 }
 
-SplitContainer::NodeData::NodeData(Split *_split, NodeBase *_parent)
+SplitContainer::NodeData::NodeData(Split *_split, NodeContainer *_parent)
     : NodeBase(_parent)
     , split_(_split)
 {
