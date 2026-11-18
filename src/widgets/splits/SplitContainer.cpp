@@ -1971,11 +1971,6 @@ SplitContainer::NodeContainer::NodeContainer(NodeContainer &&other) noexcept
     other.flexWeights_.clear();
 }
 
-std::vector<std::shared_ptr<SplitContainer::NodeBase>> SplitContainer::NodeContainer::getFlattenedSelf()
-{
-    return this->children_;
-}
-
 std::vector<qreal> &SplitContainer::NodeContainer::getFlexWeights()
 {
     return this->flexWeights_;
@@ -1989,6 +1984,11 @@ const std::vector<std::shared_ptr<SplitContainer::NodeBase>> &SplitContainer::No
 qreal SplitContainer::NodeContainer::getChildrensTotalFlex()
 {
     return std::accumulate(this->flexWeights_.begin(), this->flexWeights_.end(), static_cast<qreal>(0));
+}
+
+bool SplitContainer::NodeContainer::isContainer()
+{
+    return true;
 }
 
 bool SplitContainer::NodeContainer::isVertical()
@@ -2112,17 +2112,30 @@ void SplitContainer::NodeContainer::appendSplit(Split *_split, SplitDirection _d
     }
 }
 
-void SplitContainer::NodeContainer::flattenChildren()
+void SplitContainer::NodeContainer::flattenChild(NodeContainer *subcontainer)
 {
-    std::vector<std::shared_ptr<NodeBase>> newChildren;
-    newChildren.reserve(this->children_.size());
-    for (auto &node : this->children_) {
-        newChildren.insert_range(newChildren.end(), node->getFlattenedSelf());
+    auto iter = std::find_if(this->children_.begin(), this->children_.end(), [subcontainer](auto &node) {
+        return subcontainer == node.get();
+    });
+    if (iter == this->children_.end() ||
+        subcontainer->children_.size() != 1) {
+        // Return an invalid index
+        return;
     }
-    this->children_ = std::move(newChildren);
+    // Create a shared pointer to prevent subcontainer from being destroyed
+    // when reassigning my children.
+    std::shared_ptr<NodeBase> anchor = *iter;
+
+    size_t index = iter - this->children_.begin();
+    *iter = std::move(subcontainer->children_.back());
+    this->flexWeights_[index] = std::move(subcontainer->flexWeights_.back());
+
+    subcontainer->parent_ = nullptr;
+    subcontainer->preferedFocusTarget_ = nullptr;
+    subcontainer->children_.clear();
+    subcontainer->flexWeights_.clear();
 }
 
-// TODO: Implement returning valid position to allow drag events to release split
 SplitContainer::PositionPoly SplitContainer::NodeContainer::releaseSplit(Split *_split)
 {
     // TODO: children_.empty() (and parent == nullptr) are only valid for root; consider moving to SplitContainer call
@@ -2154,7 +2167,7 @@ SplitContainer::PositionPoly SplitContainer::NodeContainer::releaseSplit(Split *
     });
     bool splitIsTail = iter == children.end() - 1;
 
-    /* Flatten the container after removing the split, if needed. */
+    /* Must flatten container after removing the split, if container is not root */
     if (children.size() == 2) {
         if (splitIsTail) {
             children.pop_back();
@@ -2165,69 +2178,63 @@ SplitContainer::PositionPoly SplitContainer::NodeContainer::releaseSplit(Split *
             flexWeights.erase(flexWeights.begin());
         }
 
-        /* Container must be perpendicularly flattened. It will consume subcontainer's state. */
-        // Create a shared pointer to prevent subcontainer from being destroyed
-        // when reassigning container's children.
-        if (auto subcontainer = std::dynamic_pointer_cast<NodeContainer>(children.back())) {
-            if (splitIsTail) {
-                position.direction_ = subcontainer->isVertical()
-                                      ? SplitDirection::Right
-                                      : SplitDirection::Below;
-            }
-            else {
-                position.direction_ = subcontainer->isVertical()
-                                          ? SplitDirection::Left
-                                          : SplitDirection::Above;
-            }
-
-            /* Set new state. */
-            container->parent_ = subcontainer->parent_;
-            container->axis_ = subcontainer->axis_;
-            container->preferedFocusTarget_ = subcontainer->preferedFocusTarget_;
-            container->children_ = std::move(subcontainer->children_);
-            container->flexWeights_ = std::move(subcontainer->flexWeights_);
-            for (const auto &node : container->children_)
-            {
-                node->parent_ = container;
-            }
-            position.relativeNode_ = container;
-
-            /* Set state of other. */
-            // TODO: If children is changed to unique_ptr, can probably remove this block.
-            // NOTE: Probably must be shared_ptr for container resize views and other cases.
-            subcontainer->parent_ = nullptr;
-            subcontainer->preferedFocusTarget_ = nullptr;
-            // axis_ should be set during use of other
-            // NOTE: does this even do anything?
-            subcontainer->children_.clear();
-            subcontainer->flexWeights_.clear();
-
-            // TODO: This code must call 'parent_' to check if 'container' should be
-            //    parallelly flattened. E.g., Horizontal Container with a
-            //    split node and 'container', which just became a horizontal container
-            //    after being perpendicularly flattened. However, the current function
-            //    of Node::releaseSplit does not do this. This function will
-            //    mirror that during development and testing for the refactor.
-            //    The parallel flattening will be added after.
-        }
-        /* Remaining child is not a container; keep container. */
-        else {
-            if (splitIsTail) {
-                position.direction_ = container->isVertical()
-                                          ? SplitDirection::Below
-                                          : SplitDirection::Right;
-            }
-            else {
-                position.direction_ = container->isVertical()
-                                          ? SplitDirection::Above
-                                          : SplitDirection::Left;
-            }
+        bool newContainerIsVertical = false;
+        /* Container is a subcontainer. Delegate to its parent. */
+        if (auto *supercontainer = container->parent_) {
             position.relativeNode_ = children.back().get();
+            newContainerIsVertical = supercontainer->isVertical();
 
-            /* Parallelly flatten supercontainer's children */
-            if (auto *supercontainer = container->parent_) {
-                supercontainer->flattenChildren();
+            supercontainer->flattenChild(container);
+            // TODO: If container's only child was a subcontainer, then its axis
+            //    would be parallel to supercontainer's. Subcontainer should also be
+            //    flattened since it would be redundant. E.g., Horizontal supercontainer,
+            //    with vertical container, with only-child horizontal subcontainer.
+            //    After flattening container, supercontainer now holds the horizontal
+            //    subcontainer in container's old position.
+            //
+            //    However, the current function of Node::releaseSplit does not do this.
+            //    This function will mirror that during development and testing
+            //    for the refactor. Such functionality will be added after.
+        }
+        /* Container is root */
+        else {
+            /* Supplant subcontainer's state */
+            if (children.back()->isContainer();
+                auto subcontainer = std::dynamic_pointer_cast<NodeContainer>(children.back()))
+            {
+                /* Set new state */
+                container->axis_ = subcontainer->axis_;
+                container->preferedFocusTarget_ = subcontainer->preferedFocusTarget_;
+                container->children_ = std::move(subcontainer->children_);
+                container->flexWeights_ = std::move(subcontainer->flexWeights_);
+                for (const auto &node : container->children_)
+                {
+                    node->parent_ = container;
+                }
+
+                newContainerIsVertical = container->isVertical();
+                position.relativeNode_ = container;
+
+                /* Set state of subcontainer */
+                // TODO: If children is changed to unique_ptr, can probably remove this block.
+                // NOTE: Probably must be shared_ptr for container resize views and other cases.
+                subcontainer->parent_ = nullptr;
+                subcontainer->preferedFocusTarget_ = nullptr;
+                // axis_ should be set during use of other
+                // NOTE: does this even do anything?
+                subcontainer->children_.clear();
+                subcontainer->flexWeights_.clear();
             }
+        }
+        if (splitIsTail) {
+            position.direction_ = newContainerIsVertical
+            ? SplitDirection::Right
+            : SplitDirection::Below;
+        }
+        else {
+            position.direction_ = newContainerIsVertical
+            ? SplitDirection::Left
+            : SplitDirection::Above;
         }
     }
     /* Size > 2; Only remove the split. */
@@ -2236,13 +2243,13 @@ SplitContainer::PositionPoly SplitContainer::NodeContainer::releaseSplit(Split *
         if (splitIsTail) {
             children.pop_back();
             flexWeights.pop_back();
-            position.direction_ = this->isVertical()
-                                          ? SplitDirection::Below
-                                          : SplitDirection::Right;
+            position.direction_ = container->isVertical()
+                                      ? SplitDirection::Below
+                                      : SplitDirection::Right;
             position.relativeNode_ = children.back().get();
         }
         else {
-            position.direction_ = this->isVertical()
+            position.direction_ = container->isVertical()
                                       ? SplitDirection::Above
                                       : SplitDirection::Left;
             position.relativeNode_ = (iter + 1)->get();
@@ -2251,7 +2258,6 @@ SplitContainer::PositionPoly SplitContainer::NodeContainer::releaseSplit(Split *
             flexWeights.erase(flexWeights.begin() + index);
         }
     }
-
     return position;
 }
 
@@ -2533,14 +2539,14 @@ Split *SplitContainer::NodeData::getSplit() const
     return this->split_;
 }
 
-std::vector<std::shared_ptr<SplitContainer::NodeBase>> SplitContainer::NodeData::getFlattenedSelf()
-{
-    return std::vector<std::shared_ptr<SplitContainer::NodeBase>>{ std::make_shared<NodeData>(this->split_, this->parent_) };
-}
-
 qreal SplitContainer::NodeData::getSize(bool _isVertical)
 {
     return _isVertical ? this->geometry_.height() : this->geometry_.width();
+}
+
+bool SplitContainer::NodeData::isContainer()
+{
+    return false;
 }
 
 SplitContainer::NodeBase *SplitContainer::NodeData::findNodeContainingSplit(Split *_split)

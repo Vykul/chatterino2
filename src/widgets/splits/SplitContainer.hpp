@@ -196,7 +196,7 @@ public:
         virtual ~NodeBase() = default;
 
         NodeContainer *getParent() const;
-        virtual std::vector<std::shared_ptr<NodeBase>> getFlattenedSelf() = 0;
+        virtual bool isContainer() = 0;
 
         // TODO: return an iterator to avoid having to search for its iter?
         virtual NodeBase *findNodeContainingSplit(Split *_split) = 0;
@@ -224,9 +224,9 @@ public:
         enum class Axis : bool { Horizontal, Vertical };
 
         const std::vector<std::shared_ptr<NodeBase>> &getChildren();
-        std::vector<std::shared_ptr<NodeBase>> getFlattenedSelf() final;
         std::vector<qreal> &getFlexWeights();
         qreal getChildrensTotalFlex();
+        bool isContainer() final;
         bool isVertical();
         ContainerResizeView getContainerResizeView(size_t _nodeIndex);
 
@@ -235,7 +235,7 @@ public:
 
         void appendSplit(Split *_split, SplitDirection _direction);
         void appendSplit(Split *_split, SplitDirection _direction, NodeBase* relNode);
-        void flattenChildren();
+        void flattenChild(NodeContainer *subcontainer);
         PositionPoly releaseSplit(Split *_split);
 
         // Clamps the flex values ensuring they're never below 0
@@ -293,8 +293,8 @@ public:
         NodeData(Split *_split, NodeContainer *_parent);
 
         Split *getSplit() const;
-        std::vector<std::shared_ptr<NodeBase>> getFlattenedSelf() final;
         qreal getSize(bool _isVertical) final; // Have to move this to container since it depends on isVertical?
+        bool isContainer() final;
         NodeBase *findNodeContainingSplit(Split *_split) final;
 
         void layout(bool addSpacing, float _scale,
