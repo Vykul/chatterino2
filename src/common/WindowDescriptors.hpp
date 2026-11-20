@@ -62,6 +62,30 @@ struct SplitDescriptor {
     IndirectChannel decodeChannel() const;
 };
 
+struct SplitNodeDescriptorPoly : SplitDescriptor {
+    SplitNodeDescriptorPoly() = default;
+    SplitNodeDescriptorPoly(SplitDescriptor descriptor);
+
+    static SplitNodeDescriptorPoly loadFromJSON(const QJsonObject &root);
+
+    QJsonObject toJson() const;
+};
+
+struct ContainerNodeDescriptorPoly;
+
+using NodeDescriptorPoly =
+    std::variant<ContainerNodeDescriptorPoly, SplitNodeDescriptorPoly>;
+
+struct ContainerNodeDescriptorPoly {
+    bool isVertical_ = false;
+    std::vector<NodeDescriptorPoly> children_;
+    std::vector<qreal> flexWeights_;
+
+    static ContainerNodeDescriptorPoly loadFromJSON(const QJsonObject &root);
+
+    QJsonObject toJson() const;
+};
+
 struct SplitNodeDescriptor : SplitDescriptor {
     SplitNodeDescriptor() = default;
     SplitNodeDescriptor(SplitDescriptor descriptor);

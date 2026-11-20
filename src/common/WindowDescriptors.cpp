@@ -168,6 +168,86 @@ IndirectChannel SplitDescriptor::decodeChannel() const
     return Channel::getEmpty();
 }
 
+SplitNodeDescriptorPoly::SplitNodeDescriptorPoly(SplitDescriptor descriptor)
+    : SplitDescriptor(std::move(descriptor))
+{
+}
+
+SplitNodeDescriptorPoly SplitNodeDescriptorPoly::loadFromJSON(const QJsonObject &root)
+{
+    SplitNodeDescriptorPoly descriptor(SplitDescriptor::loadFromJSON(root));
+    return descriptor;
+}
+
+QJsonObject SplitNodeDescriptorPoly::toJson() const
+{
+    QJsonObject obj = SplitDescriptor::toJson();
+    return obj;
+}
+
+ContainerNodeDescriptorPoly ContainerNodeDescriptorPoly::loadFromJSON(
+    const QJsonObject &root)
+{
+    ContainerNodeDescriptorPoly descriptor;
+
+    descriptor.isVertical_ = root.value("axis").toString() == "vertical";
+
+    const auto children = root.value("children").toArray();
+    descriptor.children_.reserve(children.size());
+    for (const auto child : children)
+    {
+        const auto obj = child.toObject();
+        if (obj.value("type") == "split")
+        {
+            descriptor.children_.emplace_back(
+                SplitNodeDescriptor::loadFromJSON(obj));
+        }
+        else
+        {
+            descriptor.children_.emplace_back(
+                ContainerNodeDescriptorPoly::loadFromJSON(obj));
+        }
+    }
+
+    const auto flexWeights = root.value("flexWeights").toArray();
+    descriptor.flexWeights_.reserve(flexWeights.size());
+    for (const auto flex : flexWeights)
+    {
+        if (flex.isDouble())
+        {
+            descriptor.flexWeights_.emplace_back(flex.toDouble());
+        }
+        else
+        {
+            qWarning() << "Non-double value in flexWeights array: " << flex;
+        }
+    }
+    return descriptor;
+}
+
+QJsonObject ContainerNodeDescriptorPoly::toJson() const
+{
+    QJsonObject obj;
+    obj.insert("type", "container");
+    obj.insert("axis", this->isVertical_ ? "vertical" : "horizontal");
+
+    QJsonArray childrenArr;
+    for (const auto &child : this->children_)
+    {
+        childrenArr.append(std::visit(
+            [](auto &&it) {
+                return it.toJson();
+            },
+            child));
+    }
+    obj.insert("children", childrenArr);
+
+    QJsonArray flexWeightsArr;
+    std::copy(this->flexWeights_.begin(), this->flexWeights_.end(), flexWeightsArr.begin());
+    obj.insert("flexWeights", flexWeightsArr);
+    return obj;
+}
+
 SplitNodeDescriptor::SplitNodeDescriptor(SplitDescriptor descriptor)
     : SplitDescriptor(std::move(descriptor))
 {

@@ -196,7 +196,7 @@ public:
         virtual ~NodeBase() = default;
 
         NodeContainer *getParent() const;
-        virtual bool isContainer() = 0;
+        virtual bool isContainer() const = 0;
 
         // TODO: return an iterator to avoid having to search for its iter?
         virtual NodeBase *findNodeContainingSplit(Split *_split) = 0;
@@ -226,7 +226,7 @@ public:
         const std::vector<std::shared_ptr<NodeBase>> &getChildren();
         std::vector<qreal> &getFlexWeights();
         qreal getChildrensTotalFlex();
-        bool isContainer() final;
+        bool isContainer() const final;
         bool isVertical();
         ContainerResizeView getContainerResizeView(size_t _nodeIndex);
 
@@ -272,6 +272,8 @@ public:
         };
 
     private:
+        friend class SplitContainer;
+
         Axis axis_{Axis::Horizontal};
         NodeBase *preferedFocusTarget_{};
 
@@ -294,7 +296,7 @@ public:
 
         Split *getSplit() const;
         qreal getSize(bool _isVertical) final; // Have to move this to container since it depends on isVertical?
-        bool isContainer() final;
+        bool isContainer() const final;
         NodeBase *findNodeContainingSplit(Split *_split) final;
 
         void layout(bool addSpacing, float _scale,
@@ -302,6 +304,8 @@ public:
                     std::vector<ResizeRectPoly> &resizeRects) final;
 
     private:
+        friend class SplitContainer;
+
         Split *split_{};
     };
 
@@ -450,6 +454,9 @@ public:
     NodeDescriptor buildDescriptor() const;
     void applyFromDescriptor(const NodeDescriptor &rootNode);
 
+    NodeDescriptorPoly buildDescriptorPoly() const;
+    void applyFromDescriptorPoly(const NodeDescriptorPoly &rootNodeDescriptor);
+
     void popup();
 
 protected:
@@ -468,6 +475,10 @@ private:
     NodeDescriptor buildDescriptorRecursively(const Node *currentNode) const;
     void applyFromDescriptorRecursively(const NodeDescriptor &rootNode,
                                         Node *baseNode);
+
+    NodeDescriptorPoly buildDescriptorRecursivelyPoly(const NodeBase *currentNodePoly) const;
+    void applyFromDescriptorRecursivelyPoly(const NodeDescriptorPoly &rootNodePoly,
+                                        NodeBase *baseNodePoly);
 
     void layout();
     void layoutPoly();

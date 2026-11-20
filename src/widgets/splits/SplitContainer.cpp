@@ -979,6 +979,21 @@ void SplitContainer::applyFromDescriptor(const NodeDescriptor &rootNode)
     this->layout();
 }
 
+NodeDescriptorPoly SplitContainer::buildDescriptorPoly() const
+{
+    return this->buildDescriptorRecursivelyPoly(this->baseNodePoly_.get());
+}
+
+void SplitContainer::applyFromDescriptorPoly(const NodeDescriptorPoly &rootNodeDescriptor)
+{
+    assert(this->baseNodePoly_->children_.empty());
+
+    this->disableLayouting_ = true;
+    this->applyFromDescriptorRecursivelyPoly(rootNodeDescriptor, this->baseNodePoly_.get());
+    this->disableLayouting_ = false;
+    this->layoutPoly();
+}
+
 void SplitContainer::popup()
 {
     Window &window =
@@ -1113,6 +1128,97 @@ void SplitContainer::applyFromDescriptorRecursively(
 
                 baseNode->children_.emplace_back(node);
                 this->applyFromDescriptorRecursively(item, node.get());
+            }
+        }
+    }
+}
+
+NodeDescriptorPoly SplitContainer::buildDescriptorRecursivelyPoly(
+    const NodeBase *currentNodePoly) const
+{
+    if (currentNodePoly->isContainer();
+        auto *container = dynamic_cast<const NodeContainer*>(currentNodePoly))
+    {
+        ContainerNodeDescriptorPoly containerDescriptor;
+        containerDescriptor.isVertical_ = container->axis_ == NodeContainer::Axis::Vertical;
+
+        containerDescriptor.children_.reserve(container->children_.size());
+        for (const auto &child : container->children_)
+        {
+            containerDescriptor.children_.push_back(this->buildDescriptorRecursivelyPoly(child.get()));
+        }
+
+        containerDescriptor.flexWeights_.assign_range(container->flexWeights_);
+
+        return containerDescriptor;
+    }
+    SplitNodeDescriptorPoly descriptor;
+    if (auto *split = dynamic_cast<const NodeData*>(currentNodePoly);
+        split->split_ != nullptr)
+    {
+        descriptor = split->split_->buildDescriptor();
+    }
+
+    return descriptor;
+}
+
+void SplitContainer::applyFromDescriptorRecursivelyPoly(
+    const NodeDescriptorPoly &nodeDescriptor, NodeBase *currentNode)
+{
+    if (std::holds_alternative<SplitNodeDescriptorPoly>(nodeDescriptor))
+    {
+        // This is a leaf, no further recursion happens from here
+        const auto &splitNodeDescriptor = std::get<SplitNodeDescriptorPoly>(nodeDescriptor);
+
+        auto *split = new Split(this);
+        split->setChannel(splitNodeDescriptor.decodeChannel());
+        split->setModerationMode(splitNodeDescriptor.moderationMode_);
+        split->setFilters(splitNodeDescriptor.filters_);
+        split->setCheckSpellingOverride(splitNodeDescriptor.spellCheckOverride);
+
+        this->insertSplitPoly(split);
+
+        return;
+    }
+    else if (std::holds_alternative<ContainerNodeDescriptorPoly>(nodeDescriptor);
+             auto containerNode = dynamic_cast<NodeContainer*>(currentNode))
+    {
+        // This is a branch, it will contain one or more splits/containers
+        const auto &containerDescriptor = std::get<ContainerNodeDescriptorPoly>(nodeDescriptor);
+
+        containerNode->axis_ = containerDescriptor.isVertical_
+                                   ? NodeContainer::Axis::Vertical
+                                   : NodeContainer::Axis::Horizontal;
+        containerNode->flexWeights_.assign_range(containerDescriptor.flexWeights_);
+
+        for (const auto &nodeDescriptor : containerDescriptor.children_)
+        {
+            if (std::holds_alternative<SplitNodeDescriptorPoly>(nodeDescriptor))
+            {
+                const auto &splitNodeDescriptor = std::get<SplitNodeDescriptorPoly>(nodeDescriptor);
+                auto *split = new Split(this);
+                split->setChannel(splitNodeDescriptor.decodeChannel());
+                split->setModerationMode(splitNodeDescriptor.moderationMode_);
+                split->setFilters(splitNodeDescriptor.filters_);
+                split->setCheckSpellingOverride(splitNodeDescriptor.spellCheckOverride);
+
+                auto node = std::make_shared<NodeData>();
+                node->parent_ = containerNode;
+                node->split_ = split;
+
+                containerNode->children_.emplace_back(std::move(node));
+
+                // Initialized split's GUI elements and signals
+                // Would duplicate splits that we're leeching
+                // this->addSplit(split);
+            }
+            else
+            {
+                auto subcontainer = std::make_shared<NodeContainer>();
+                subcontainer->parent_ = containerNode;
+
+                containerNode->children_.emplace_back(subcontainer);
+                this->applyFromDescriptorRecursivelyPoly(nodeDescriptor, subcontainer.get());
             }
         }
     }
@@ -1986,7 +2092,7 @@ qreal SplitContainer::NodeContainer::getChildrensTotalFlex()
     return std::accumulate(this->flexWeights_.begin(), this->flexWeights_.end(), static_cast<qreal>(0));
 }
 
-bool SplitContainer::NodeContainer::isContainer()
+bool SplitContainer::NodeContainer::isContainer() const
 {
     return true;
 }
@@ -2544,7 +2650,7 @@ qreal SplitContainer::NodeData::getSize(bool _isVertical)
     return _isVertical ? this->geometry_.height() : this->geometry_.width();
 }
 
-bool SplitContainer::NodeData::isContainer()
+bool SplitContainer::NodeData::isContainer() const
 {
     return false;
 }
