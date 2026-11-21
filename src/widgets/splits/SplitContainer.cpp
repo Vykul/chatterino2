@@ -987,6 +987,7 @@ NodeDescriptorPoly SplitContainer::buildDescriptorPoly() const
 void SplitContainer::applyFromDescriptorPoly(const NodeDescriptorPoly &rootNodeDescriptor)
 {
     assert(this->baseNodePoly_->children_.empty());
+    assert(this->baseNodePoly_->flexWeights_.empty());
 
     this->disableLayouting_ = true;
     this->applyFromDescriptorRecursivelyPoly(rootNodeDescriptor, this->baseNodePoly_.get());
@@ -1168,21 +1169,26 @@ void SplitContainer::applyFromDescriptorRecursivelyPoly(
     if (std::holds_alternative<SplitNodeDescriptorPoly>(nodeDescriptor))
     {
         // This is a leaf, no further recursion happens from here
+        auto *splitNode = dynamic_cast<NodeData*>(currentNode);
+        if (!splitNode) {
+            return;
+        }
         const auto &splitNodeDescriptor = std::get<SplitNodeDescriptorPoly>(nodeDescriptor);
 
-        auto *split = new Split(this);
-        split->setChannel(splitNodeDescriptor.decodeChannel());
-        split->setModerationMode(splitNodeDescriptor.moderationMode_);
-        split->setFilters(splitNodeDescriptor.filters_);
-        split->setCheckSpellingOverride(splitNodeDescriptor.spellCheckOverride);
+        // auto *split = new Split(this);
+        // split->setChannel(splitNodeDescriptor.decodeChannel());
+        // split->setModerationMode(splitNodeDescriptor.moderationMode_);
+        // split->setFilters(splitNodeDescriptor.filters_);
+        // split->setCheckSpellingOverride(splitNodeDescriptor.spellCheckOverride);
 
-        this->insertSplitPoly(split);
-
-        return;
+        // splitNode->split_ = split;
     }
-    else if (std::holds_alternative<ContainerNodeDescriptorPoly>(nodeDescriptor);
-             auto containerNode = dynamic_cast<NodeContainer*>(currentNode))
+    else if (std::holds_alternative<ContainerNodeDescriptorPoly>(nodeDescriptor))
     {
+        auto *containerNode = dynamic_cast<NodeContainer*>(currentNode);
+        if (!containerNode) {
+            return;
+        }
         // This is a branch, it will contain one or more splits/containers
         const auto &containerDescriptor = std::get<ContainerNodeDescriptorPoly>(nodeDescriptor);
 
@@ -1195,30 +1201,14 @@ void SplitContainer::applyFromDescriptorRecursivelyPoly(
         {
             if (std::holds_alternative<SplitNodeDescriptorPoly>(nodeDescriptor))
             {
-                const auto &splitNodeDescriptor = std::get<SplitNodeDescriptorPoly>(nodeDescriptor);
-                auto *split = new Split(this);
-                split->setChannel(splitNodeDescriptor.decodeChannel());
-                split->setModerationMode(splitNodeDescriptor.moderationMode_);
-                split->setFilters(splitNodeDescriptor.filters_);
-                split->setCheckSpellingOverride(splitNodeDescriptor.spellCheckOverride);
-
-                auto node = std::make_shared<NodeData>();
-                node->parent_ = containerNode;
-                node->split_ = split;
-
-                containerNode->children_.emplace_back(std::move(node));
-
-                // Initialized split's GUI elements and signals
-                // Would duplicate splits that we're leeching
-                // this->addSplit(split);
+                auto splitNode = containerNode->children_.emplace_back(std::make_shared<NodeData>());
+                splitNode->parent_ = containerNode;
+                this->applyFromDescriptorRecursivelyPoly(nodeDescriptor, splitNode.get());
             }
             else
             {
-                auto subcontainer = std::make_shared<NodeContainer>();
-                subcontainer->parent_ = containerNode;
-
-                containerNode->children_.emplace_back(subcontainer);
-                this->applyFromDescriptorRecursivelyPoly(nodeDescriptor, subcontainer.get());
+                auto subcontainerNode = containerNode->children_.emplace_back(std::make_shared<NodeContainer>(containerNode));
+                this->applyFromDescriptorRecursivelyPoly(nodeDescriptor, subcontainerNode.get());
             }
         }
     }
@@ -2305,9 +2295,11 @@ SplitContainer::PositionPoly SplitContainer::NodeContainer::releaseSplit(Split *
         /* Container is root */
         else {
             /* Supplant subcontainer's state */
-            if (children.back()->isContainer();
-                auto subcontainer = std::dynamic_pointer_cast<NodeContainer>(children.back()))
+            if (children.back()->isContainer())
             {
+                auto subcontainer = std::dynamic_pointer_cast<NodeContainer>(children.back());
+                assert(subcontainer != nullptr);
+
                 /* Set new state */
                 container->axis_ = subcontainer->axis_;
                 container->preferedFocusTarget_ = subcontainer->preferedFocusTarget_;
