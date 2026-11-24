@@ -2224,6 +2224,7 @@ void SplitContainer::NodeContainer::flattenChild(NodeContainer *subcontainer)
 
     size_t index = iter - this->children_.begin();
     *iter = std::move(subcontainer->children_.back());
+    this->children_[index]->parent_ = this;
     this->flexWeights_[index] = std::move(subcontainer->flexWeights_.back());
 
     subcontainer->parent_ = nullptr;
