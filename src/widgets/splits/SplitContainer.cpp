@@ -995,6 +995,21 @@ void SplitContainer::applyFromDescriptorPoly(const NodeDescriptorPoly &rootNodeD
     this->layoutPoly();
 }
 
+void SplitContainer::mapToPoly()
+{
+    auto rootNodePoly = this->mapToPolyRecurse(this->baseNode_);
+    if (rootNodePoly) {
+        auto node = std::dynamic_pointer_cast<NodeContainer>(rootNodePoly);
+        if (node) {
+            this->baseNodePoly_ = node;
+            return;
+        }
+    }
+
+    // Create a default container if we cannot map
+    this->baseNodePoly_ = std::make_shared<NodeContainer>(nullptr);
+}
+
 void SplitContainer::popup()
 {
     Window &window =
@@ -1212,6 +1227,31 @@ void SplitContainer::applyFromDescriptorRecursivelyPoly(
             }
         }
     }
+}
+
+std::shared_ptr<SplitContainer::NodeBase> SplitContainer::mapToPolyRecurse(const std::shared_ptr<Node> &currentNode) const
+{
+    if (currentNode->children_.empty()) {
+        switch (currentNode->type_) {
+            case Node::Type::EmptyRoot: {
+                return nullptr;
+            }
+            case Node::Type::Split: {
+                return std::make_shared<NodeData>(currentNode->split_, nullptr);
+            }
+        }
+    }
+    auto container = std::make_shared<NodeContainer>(nullptr);
+    bool isVertical = currentNode->type_ == Node::Type::VerticalContainer;
+    isVertical ? container->axis_ = NodeContainer::Axis::Vertical : NodeContainer::Axis::Horizontal;
+    for (const auto &child : currentNode->children_) {
+        container->flexWeights_.emplace_back(isVertical? child->flexV_ : child->flexH_);
+
+        auto childNode = mapToPolyRecurse(child);
+        childNode->parent_ = container.get();
+        container->children_.emplace_back(std::move(childNode));
+    }
+    return container;
 }
 
 void SplitContainer::refreshTabTitle()

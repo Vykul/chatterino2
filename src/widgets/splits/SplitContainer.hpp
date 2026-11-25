@@ -457,6 +457,8 @@ public:
     NodeDescriptorPoly buildDescriptorPoly() const;
     void applyFromDescriptorPoly(const NodeDescriptorPoly &rootNodeDescriptor);
 
+    void mapToPoly();
+
     void popup();
 
 protected:
@@ -479,6 +481,8 @@ private:
     NodeDescriptorPoly buildDescriptorRecursivelyPoly(const NodeBase *currentNodePoly) const;
     void applyFromDescriptorRecursivelyPoly(const NodeDescriptorPoly &rootNodePoly,
                                         NodeBase *baseNodePoly);
+
+    std::shared_ptr<NodeBase> mapToPolyRecurse(const std::shared_ptr<Node> &currentNode) const;
 
     void layout();
     void layoutPoly();

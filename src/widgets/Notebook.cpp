@@ -221,8 +221,10 @@ void Notebook::duplicatePage(QWidget *page)
     auto *newContainer = new SplitContainer(this);
     if (!container->getSplits().empty())
     {
-        auto descriptor = container->buildDescriptor();
-        newContainer->applyFromDescriptor(descriptor);
+        // auto descriptor = container->buildDescriptor();
+        // newContainer->applyFromDescriptor(descriptor);
+
+        container->mapToPoly();
 
         auto descriptorPoly = container->buildDescriptorPoly();
         newContainer->applyFromDescriptorPoly(descriptorPoly);
