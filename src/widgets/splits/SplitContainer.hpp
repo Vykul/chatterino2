@@ -230,6 +230,8 @@ public:
         bool isVertical();
         ContainerResizeView getContainerResizeView(size_t _nodeIndex);
 
+        void fetchSplitNodes(std::vector<std::shared_ptr<NodeBase>> &outNodes);
+
         NodeBase *findNodeContainingSplit(Split *_split) final;
         bool isOrContainsNode(NodeBase *_node) final;
 
@@ -492,6 +494,7 @@ private:
     void focusSplitRecursive(Node *node);
     void setPreferedTargetRecursive(Node *node);
     void paintSplitBorder(Node *node, QPainter *painter);
+    void paintSplitBorderPoly(QPainter *painter);
 
     void addSplit(Split *split);
 

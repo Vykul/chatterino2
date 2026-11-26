@@ -813,9 +813,12 @@ void SplitContainer::layoutPoly()
 
     if (!resizeRects.empty()) {
         /* Prepare space to retrieve our new resize handles */
-        this->resizeHandlesPoly_.size() > resizeRects.size()
-            ? this->resizeHandlesPoly_.resize(resizeRects.size())
-            : this->resizeHandlesPoly_.reserve(resizeRects.size());
+        if (this->resizeHandlesPoly_.size() > resizeRects.size()) {
+            this->resizeHandlesPoly_.resize(resizeRects.size());
+        }
+        else {
+            this->resizeHandlesPoly_.reserve(resizeRects.size());
+        }
         this->resizeHandlesPoly_.clear();
 
         /* Create a valid resize handle for each inter-split boundary */
@@ -919,6 +922,22 @@ void SplitContainer::paintSplitBorder(Node *node, QPainter *painter)
     }
 }
 
+void SplitContainer::paintSplitBorderPoly(QPainter *painter)
+{
+    // TODO: Why dont i just iterate over this->splits_? Need to remove split nodes' geometry_ shadow
+    std::vector<std::shared_ptr<NodeBase>> splitNodes;
+    splitNodes.reserve(this->splits_.size());
+    this->baseNodePoly_->fetchSplitNodes(splitNodes);
+
+    for (const auto &node : splitNodes) {
+        QRectF nodeRect = node->geometry_;
+        painter->setPen(this->theme->tabs.dividerLine);
+        QPainterPath p = QPainterPath();
+        p.addRect(nodeRect);
+        painter->strokePath(p, painter->pen());
+    }
+}
+
 void SplitContainer::paintEvent(QPaintEvent * /*event*/)
 {
     QPainter painter(this);
@@ -949,7 +968,12 @@ void SplitContainer::paintEvent(QPaintEvent * /*event*/)
     }
     else
     {
-        this->paintSplitBorder(this->getBaseNode(), &painter);
+        if (this->testingPolyMode_) {
+            this->paintSplitBorderPoly(&painter);
+        }
+        else {
+            this->paintSplitBorder(this->getBaseNode(), &painter);
+        }
     }
 
     for (DropRect &dropRect : this->dropRects_)
@@ -2234,6 +2258,20 @@ bool SplitContainer::NodeContainer::isVertical()
     return this->axis_ == Axis::Vertical;
 }
 
+void SplitContainer::NodeContainer::fetchSplitNodes(std::vector<std::shared_ptr<NodeBase>> &outNodes)
+{
+    for (const auto &child : this->children_) {
+        if (child->isContainer()) {
+            const auto &container = std::dynamic_pointer_cast<NodeContainer>(child);
+            assert(container != nullptr);
+            container->fetchSplitNodes(outNodes);
+        }
+        else {
+            outNodes.push_back(child);
+        }
+    }
+}
+
 SplitContainer::NodeContainer::ContainerResizeView SplitContainer::NodeContainer::getContainerResizeView(size_t _nodeIndex)
 {
     if (_nodeIndex < this->children_.size()) {
@@ -2540,7 +2578,8 @@ void SplitContainer::NodeContainer::layout(bool addSpacing, float _scale, std::v
 
     qreal totalSize = 0;
     for (const auto &childFlex : this->flexWeights_) {
-        totalSize += std::max<qreal>(this->getSize(isVertical) /
+        // TODO: remove this int-cast truncation bug; using to mirror old structure code
+        totalSize = int(totalSize) + std::max<qreal>(this->getSize(isVertical) /
                                          std::max<qreal>(0.0001, totalFlex) *
                                          childFlex,
                                      minSize);
