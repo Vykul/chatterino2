@@ -435,7 +435,7 @@ public:
     Position releaseSplit(Split *split);
     PositionPoly releaseSplitPoly(Split *split);
 
-    Position deleteSplit(Split *split);
+    void deleteSplit(Split *split);
 
     void selectNextSplit(SplitDirection direction);
     void setSelected(Split *split);
@@ -460,6 +460,8 @@ public:
     void mapToPoly();
 
     void popup();
+    bool isPolyMode() {return this->testingPolyMode_;};
+    void setPolyMode(bool isPolyMode) {this->testingPolyMode_ = isPolyMode;};
 
 protected:
     void paintEvent(QPaintEvent *event) override;
@@ -513,6 +515,7 @@ private:
     Split *selected_{};
     Split *topRight_{};
     bool disableLayouting_{};
+    bool testingPolyMode_{false};
 
     NotebookTab *tab_;
     std::vector<Split *> splits_;

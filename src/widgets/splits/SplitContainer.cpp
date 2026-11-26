@@ -45,26 +45,48 @@ SplitContainer::SplitContainer(Notebook *parent)
 
     this->signalHolder_.managedConnect(
         Split::modifierStatusChanged, [this](auto modifiers) {
-            this->layout();
-            this->layoutPoly();
-
-            if (modifiers == SHOW_RESIZE_HANDLES_MODIFIERS)
-            {
-                for (auto &handle : this->resizeHandles_)
+            if (this->testingPolyMode_) {
+                this->layoutPoly();
+                if (modifiers == SHOW_RESIZE_HANDLES_MODIFIERS)
                 {
-                    handle->show();
-                    handle->raise();
+                    for (auto &handlePoly : this->resizeHandlesPoly_)
+                    {
+                        handlePoly->show();
+                        handlePoly->raise();
+                    }
+                }
+                else
+                {
+                    for (auto &handlePoly : this->resizeHandlesPoly_)
+                    {
+                        handlePoly->hide();
+
+                        // Resize split modifier was released, ensure no resize handle has
+                        // isMouseDown_ set to true
+                        handlePoly->isMouseDown_ = false;
+                    }
                 }
             }
-            else
-            {
-                for (auto &handle : this->resizeHandles_)
+            else {
+                this->layout();
+                if (modifiers == SHOW_RESIZE_HANDLES_MODIFIERS)
                 {
-                    handle->hide();
+                    for (auto &handle : this->resizeHandles_)
+                    {
+                        handle->show();
+                        handle->raise();
+                    }
+                }
+                else
+                {
+                    for (auto &handle : this->resizeHandles_)
+                    {
+                        handle->hide();
 
-                    // Resize split modifier was released, ensure no resize handle has
-                    // isMouseDown_ set to true
-                    handle->isMouseDown_ = false;
+                        // Resize split modifier was released, ensure no resize handle has
+                        // isMouseDown_ set to true
+                        handle->isMouseDown_ = false;
+                    }
                 }
             }
 
@@ -81,15 +103,19 @@ SplitContainer::SplitContainer(Notebook *parent)
     this->setCursor(Qt::PointingHandCursor);
     this->setAcceptDrops(true);
 
-    this->signalHolder_.managedConnect(this->overlay_.dragEnded, [this]() {
-        this->isDragging_ = false;
-        this->layout();
-        // TODO: Add this->layoutPoly()?
-    });
+    if (this->testingPolyMode_) {
+        // TODO: add signal
 
-    this->overlay_.hide();
-    this->overlayPoly_.hide();
-    this->overlayPoly_.setDisabled(true);
+        this->overlayPoly_.hide();
+    }
+    else {
+        this->signalHolder_.managedConnect(this->overlay_.dragEnded, [this]() {
+            this->isDragging_ = false;
+            this->layout();
+        });
+
+        this->overlay_.hide();
+    }
 
     this->setMouseTracking(true);
     this->setAcceptDrops(true);
@@ -130,8 +156,8 @@ Split *SplitContainer::appendNewSplit(bool openChannelNameDialog)
     assertInGuiThread();
 
     auto *split = new Split(this);
-    this->insertSplit(split);
-    this->insertSplitPoly(split);
+
+    this->testingPolyMode_ ? this->insertSplitPoly(split) : this->insertSplit(split);
 
     if (openChannelNameDialog)
     {
@@ -355,18 +381,14 @@ void SplitContainer::addSplit(Split *split)
     conns.managedConnect(
         split->insertSplitRequested, [this](SplitDirection dir, Split *parent) {
             Split *s = new Split(this);
-            this->insertSplit(s, {
-                                                   .relativeSplit = parent,
-                                                   .direction = dir,
-                                               });
-            this->insertSplitPoly(s, {
-                                                       .relativeSplit = parent,
-                                                       .direction = dir,
-                                                   });
+            this->testingPolyMode_
+                ? this->insertSplitPoly(s, { .relativeSplit = parent,
+                                             .direction = dir, })
+                : this->insertSplit(s, { .relativeSplit = parent,
+                                         .direction = dir, });
         });
 
-    this->layout();
-    // TODO: Add this->layoutPoly()?
+    this->testingPolyMode_ ? this->layoutPoly() : this->layout();
 }
 
 void SplitContainer::setSelected(Split *split)
@@ -434,7 +456,7 @@ SplitContainer::PositionPoly SplitContainer::releaseSplitPoly(Split *split)
     return position;
 }
 
-SplitContainer::Position SplitContainer::deleteSplit(Split *split)
+void SplitContainer::deleteSplit(Split *split)
 {
     // Queue up save because: Split removed
     getApp()->getWindows()->queueSave();
@@ -444,8 +466,12 @@ SplitContainer::Position SplitContainer::deleteSplit(Split *split)
 
     split->deleteLater();
 
-    this->releaseSplitPoly(split);
-    return this->releaseSplit(split);
+    if (this->testingPolyMode_) {
+        this->releaseSplitPoly(split);
+    }
+    else {
+        this->releaseSplit(split);
+    }
 }
 
 void SplitContainer::selectNextSplit(SplitDirection direction)
@@ -717,6 +743,7 @@ void SplitContainer::layoutPoly()
         QRect g = this->rect();
         dropRects.emplace_back(
             QRect(g.left(), g.top(), g.width() - 1, g.height() - 1),
+            // TODO: default split direction?
             PositionPoly(nullptr, SplitDirection::Below));
     }
 
@@ -771,17 +798,28 @@ void SplitContainer::mouseReleaseEvent(QMouseEvent *event)
         /* Outer-boundary splitting */
         else
         {
-            auto it =
-                std::find_if(this->dropRects_.begin(), this->dropRects_.end(),
-                             [event](DropRect &rect) {
-                                 return rect.rect.contains(event->pos());
-                             });
-            if (it != this->dropRects_.end())
-            {
-                int i = it - this->dropRects_.begin();
-                Split* s = new Split(this);
-                this->insertSplit(s, {.position = it->position});
-                this->insertSplitPoly(s, {.position = this->dropRectsPoly_[i].position});
+            if (this->testingPolyMode_) {
+                auto it = std::find_if(this->dropRectsPoly_.begin(), this->dropRectsPoly_.end(),
+                                       [event](DropRectPoly &rect) {
+                                           return rect.rect.contains(event->pos());
+                });
+                if (it != this->dropRectsPoly_.end())
+                {
+                    Split* s = new Split(this);
+                    this->insertSplitPoly(s, {.position = it->position});
+                }
+            }
+            else {
+                auto it =
+                    std::find_if(this->dropRects_.begin(), this->dropRects_.end(),
+                                 [event](DropRect &rect) {
+                                     return rect.rect.contains(event->pos());
+                                 });
+                if (it != this->dropRects_.end())
+                {
+                    Split* s = new Split(this);
+                    this->insertSplit(s, {.position = it->position});
+                }
             }
         }
     }
@@ -909,12 +947,21 @@ void SplitContainer::dragEnterEvent(QDragEnterEvent *event)
     }
 
     this->isDragging_ = true;
-    this->layout();
-    this->layoutPoly();
 
-    this->overlay_.setGeometry(this->rect());
-    this->overlay_.show();
-    this->overlay_.raise();
+    if (this->testingPolyMode_) {
+        this->layoutPoly();
+
+        this->overlayPoly_.setGeometry(this->rect());
+        this->overlayPoly_.show();
+        this->overlayPoly_.raise();
+    }
+    else {
+        this->layout();
+
+        this->overlay_.setGeometry(this->rect());
+        this->overlay_.show();
+        this->overlay_.raise();
+    }
 }
 
 void SplitContainer::mouseMoveEvent(QMouseEvent *event)
@@ -1002,12 +1049,22 @@ void SplitContainer::mapToPoly()
         auto node = std::dynamic_pointer_cast<NodeContainer>(rootNodePoly);
         if (node) {
             this->baseNodePoly_ = node;
-            return;
+        }
+        else {
+            // baseNode is of type Split, nest it
+            if (this->baseNode_->type_ == Node::Type::Split) {
+                auto rootNode = std::make_shared<NodeContainer>(nullptr);
+                // Use 'rootNodePoly' since 'node' would be nullptr here
+                rootNode->children_.emplace_back(rootNodePoly);
+                rootNode->flexWeights_.emplace_back(NodeContainer::defaultFlex_);
+                this->baseNodePoly_ = rootNode;
+            }
+            // Create a default container if we cannot map or if baseNode is EmptyRoot
+            else {
+                this->baseNodePoly_ = std::make_shared<NodeContainer>(nullptr);
+            }
         }
     }
-
-    // Create a default container if we cannot map
-    this->baseNodePoly_ = std::make_shared<NodeContainer>(nullptr);
 }
 
 void SplitContainer::popup()
@@ -1190,13 +1247,14 @@ void SplitContainer::applyFromDescriptorRecursivelyPoly(
         }
         const auto &splitNodeDescriptor = std::get<SplitNodeDescriptorPoly>(nodeDescriptor);
 
-        // auto *split = new Split(this);
-        // split->setChannel(splitNodeDescriptor.decodeChannel());
-        // split->setModerationMode(splitNodeDescriptor.moderationMode_);
-        // split->setFilters(splitNodeDescriptor.filters_);
-        // split->setCheckSpellingOverride(splitNodeDescriptor.spellCheckOverride);
+        auto *split = new Split(this);
+        split->setChannel(splitNodeDescriptor.decodeChannel());
+        split->setModerationMode(splitNodeDescriptor.moderationMode_);
+        split->setFilters(splitNodeDescriptor.filters_);
+        split->setCheckSpellingOverride(splitNodeDescriptor.spellCheckOverride);
 
-        // splitNode->split_ = split;
+        splitNode->split_ = split;
+        this->addSplit(split);
     }
     else if (std::holds_alternative<ContainerNodeDescriptorPoly>(nodeDescriptor))
     {
@@ -1857,17 +1915,13 @@ void SplitContainer::DropOverlay::dragLeaveEvent(QDragLeaveEvent * /*event*/)
 void SplitContainer::DropOverlay::dropEvent(QDropEvent *event)
 {
     Position *position = nullptr;
-    PositionPoly *positionPoly = nullptr;
-    for (unsigned int i = 0; DropRect &rect : this->rects_)
+    for (DropRect &rect : this->rects_)
     {
         if (rect.rect.contains(this->mouseOverPoint_))
         {
             position = &rect.position;
-            DropOverlayPoly &dop = this->parent_->overlayPoly_;
-            positionPoly = & dop.rects_[i].position;
             break;
         }
-        ++i;
     }
 
     if (!position)
@@ -1885,7 +1939,6 @@ void SplitContainer::DropOverlay::dropEvent(QDropEvent *event)
     }
 
     this->parent_->insertSplit(draggedSplit, {.position = *position});
-    this->parent_->insertSplitPoly(draggedSplit, {.position = *positionPoly});
     event->acceptProposedAction();
 
     this->mouseOverPoint_ = QPoint(-10000, -10000);
@@ -1956,20 +2009,6 @@ void SplitContainer::ResizeHandle::mouseMoveEvent(QMouseEvent *event)
     assert(node != nullptr);
     assert(node->parent_ != nullptr);
 
-    NodeBase *nodePoly = this->parent->baseNodePoly_->findNodeContainingSplit(this->node->split_);
-    NodeContainer *containerPoly = nodePoly->parent_;
-    auto childrenPoly = containerPoly->getChildren();
-    auto itPoly = std::ranges::find_if(childrenPoly, [this](const auto &n) {
-        if (auto splitNode = dynamic_cast<NodeData*>(n.get())) {
-            return splitNode->getSplit() == this->node->split_;
-        }
-        return false;
-    });
-    assert(itPoly != childrenPoly.end());
-    unsigned int sourceIndex = itPoly - childrenPoly.begin();
-    qreal &sourceRegister = containerPoly->getFlexWeights()[sourceIndex];
-    qreal &neighborRegister = containerPoly->getFlexWeights()[sourceIndex - 1];
-
     const auto &siblings = this->node->parent_->getChildren();
     auto it = std::ranges::find_if(siblings, [this](const auto &n) {
         return n.get() == this->node;
@@ -2002,9 +2041,6 @@ void SplitContainer::ResizeHandle::mouseMoveEvent(QMouseEvent *event)
                          (bottomRight.y() - topLeft.y());
         this->node->flexV_ = totalFlexV - before->flexV_;
 
-        neighborRegister = before->flexV_;
-        sourceRegister = this->node->flexV_;
-
         this->parent->layout();
 
         // move handle
@@ -2016,9 +2052,6 @@ void SplitContainer::ResizeHandle::mouseMoveEvent(QMouseEvent *event)
         before->flexH_ = totalFlexH * (mousePoint.x() - topLeft.x()) /
                          (bottomRight.x() - topLeft.x());
         this->node->flexH_ = totalFlexH - before->flexH_;
-
-        neighborRegister = before->flexH_;
-        sourceRegister = this->node->flexH_;
 
         this->parent->layout();
 

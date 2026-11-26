@@ -228,6 +228,7 @@ void Notebook::duplicatePage(QWidget *page)
 
         auto descriptorPoly = container->buildDescriptorPoly();
         newContainer->applyFromDescriptorPoly(descriptorPoly);
+        newContainer->setPolyMode(true);
     }
 
     const auto tabPosition = this->indexOf(page);
