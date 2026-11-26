@@ -278,7 +278,7 @@ void SplitContainer::insertSplitPoly(Split *split, InsertOptionsPoly &&options)
         }
     }
 
-    this->layoutPoly();
+    this->addSplit(split);
 }
 
 Split *SplitContainer::getSelectedSplit() const
@@ -450,8 +450,31 @@ SplitContainer::Position SplitContainer::releaseSplit(Split *split)
 
 SplitContainer::PositionPoly SplitContainer::releaseSplitPoly(Split *split)
 {
+    assertInGuiThread();
+
+    NodeBase *node = this->baseNodePoly_->findNodeContainingSplit(split);
+    assert(node != nullptr);
+
+    this->splits_.erase(
+        std::find(this->splits_.begin(), this->splits_.end(), split));
+    split->setParent(nullptr); // TODO: Should this be moved to deleteSplit before deleteLater() is called?
+
     PositionPoly position = this->baseNodePoly_->releaseSplit(split);
     this->layoutPoly();
+
+    if (this->splits_.empty())
+    {
+        this->setSelected(nullptr);
+        this->setCursor(Qt::PointingHandCursor);
+    }
+    else
+    {
+        this->splits_.front()->setFocus(Qt::FocusReason::MouseFocusReason);
+    }
+
+    this->refreshTab();
+
+    this->connectionsPerSplit_.erase(this->connectionsPerSplit_.find(split));
 
     return position;
 }
