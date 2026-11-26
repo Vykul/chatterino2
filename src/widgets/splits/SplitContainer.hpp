@@ -496,6 +496,7 @@ private:
     void addSplit(Split *split);
 
     Split *getTopRightSplit(Node &node);
+    Split *getTopRightSplitPoly(NodeContainer *container);
 
     void refreshTabTitle();
     void refreshTabLiveStatus();
