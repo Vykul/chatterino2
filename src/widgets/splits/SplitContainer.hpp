@@ -114,11 +114,13 @@ private:
         QRect rect;
         NodeContainer *container;
         size_t childIndex;
+        bool isVertical;
 
-        ResizeRectPoly(const QRect &_rect, NodeContainer *_container, size_t _childIndex)
+        ResizeRectPoly(const QRect &_rect, NodeContainer *_container, size_t _childIndex, bool _isVertical)
             : rect(_rect)
             , container(_container)
             , childIndex(_childIndex)
+            , isVertical(_isVertical)
         {
         }
     };
@@ -253,6 +255,7 @@ public:
             bool isValid() const;
 
             /* Interface for container's member variables */
+            QRect &area();
             qreal* sourceFlexRegister();
             qreal* neighborFlexRegister();
             Axis axis();
@@ -264,13 +267,15 @@ public:
             friend struct NodeContainer;
 
 
-            ContainerResizeView();
-            ContainerResizeView(NodeContainer *_container, size_t _nodeIndex);
+            ContainerResizeView(); // NOTE: Do I really need this and the invalid state? maybe use option instead
+            ContainerResizeView(NodeContainer *_container, size_t _nodeIndex, const QRect &&_area);
 
-            NodeContainer* const container_{};
-            qreal* const sourceFlexRegister_{}; // Register for node that has a resize handle
-            qreal* const neighborFlexRegister_{}; // Register for source's neighbor that is interlinked
-            const Axis axis_;
+            // TODO: make these const if we can remove reusing memory for new handles in layout
+            QRect effectiveArea_;
+            NodeContainer* container_{};
+            qreal* sourceFlexRegister_{}; // Register for node that has a resize handle
+            qreal* neighborFlexRegister_{}; // Register for source's neighbor that is interlinked
+            Axis axis_;
         };
 
     private:
@@ -377,12 +382,23 @@ private:
                          NodeContainer::ContainerResizeView _containerView,
                          QRect _rect);
 
+        void setVertical(bool isVertical);
+        void setContainerView(NodeContainer::ContainerResizeView &&containerView);
+
+        void mouseMoveEvent(QMouseEvent *event) override;
+        void mousePressEvent(QMouseEvent *event) override;
+        void mouseReleaseEvent(QMouseEvent *event) override;
+        void mouseDoubleClickEvent(QMouseEvent *event) override;
+        void paintEvent(QPaintEvent *event) override;
+
     private:
         friend class SplitContainer;
 
         NodeContainer::ContainerResizeView containerView_;
         SplitContainer *parent_{};
-        bool isMouseDown_ = false;
+        bool isMouseDown_{false};
+        bool vertical_{false}; // TODO: Make NodeContainer::Axis standard across SplitContainer?
+                               //       Make a static isVertical function that takes an axis?
 
         void resetFlex();
     };

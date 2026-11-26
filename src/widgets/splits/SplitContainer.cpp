@@ -812,27 +812,52 @@ void SplitContainer::layoutPoly()
     this->overlayPoly_.setRects(std::move(dropRects));
 
     if (!resizeRects.empty()) {
-        /* Prepare space to retrieve our new resize handles */
+        /* Prepare space to set our new resize handles */
         if (this->resizeHandlesPoly_.size() > resizeRects.size()) {
             this->resizeHandlesPoly_.resize(resizeRects.size());
         }
         else {
             this->resizeHandlesPoly_.reserve(resizeRects.size());
         }
-        this->resizeHandlesPoly_.clear();
 
-        /* Create a valid resize handle for each inter-split boundary */
-        for (ResizeRectPoly &resizeRect : resizeRects) {
-            auto resizeView = resizeRect.container->getContainerResizeView(resizeRect.childIndex);
-            if (!resizeView.isValid()) {
-                continue;
-            }
+        /* Reassign our current memory to new resize handles */
+        // NOTE: Reusing these memory addresses is only guaranteed to work since
+        //       resize events and tree modification are separate, and this->resizeHandlesPoly_
+        //       is expected not to change or desync. But conceptually, this doesn't
+        //       seem like a great way to do it. It would be good if layout could
+        //       be modularized between a container's node structure modification,
+        //       like insertion/deletion, and superficial node modifications,
+        //       like resizing. Then we could guarantee that no structural changes
+        //       need to be made and only modify some data.
+        size_t i = 0;
+        for (const auto &handle : this->resizeHandlesPoly_) {
+            auto resizeRect = resizeRects[i];
+            handle->setGeometry(resizeRect.rect);
+            handle->setVertical(resizeRect.isVertical);
+
+            auto containerView = resizeRect.container->getContainerResizeView(resizeRect.childIndex);
+            assert(containerView.isValid());
+            handle->setContainerView(std::move(containerView));
+
+            ++i;
+        }
+
+        /* Create new handles */
+        for (; i < resizeRects.size(); ++i) {
+            auto resizeRect = resizeRects[i];
+            auto containerView = resizeRect.container->getContainerResizeView(resizeRect.childIndex);
+            assert(containerView.isValid());
+
             const auto &handle = this->resizeHandlesPoly_.emplace_back(
                 std::make_unique<ResizeHandlePoly>(
                     this,
-                    resizeView,
+                    containerView,
                     resizeRect.rect
                     ));
+            handle->setVertical(resizeRect.isVertical);
+        }
+
+        for (const auto &handle: this->resizeHandlesPoly_) {
             /* Display the resize handle if requested */
             if (Split::modifierStatus == SHOW_RESIZE_HANDLES_MODIFIERS)
             {
@@ -2275,9 +2300,11 @@ void SplitContainer::NodeContainer::fetchSplitNodes(std::vector<std::shared_ptr<
 SplitContainer::NodeContainer::ContainerResizeView SplitContainer::NodeContainer::getContainerResizeView(size_t _nodeIndex)
 {
     if (_nodeIndex < this->children_.size()) {
-        return ContainerResizeView(this, _nodeIndex);
+        QRect sourceArea = this->children_[_nodeIndex]->geometry_.toRect();
+        QRect neighborArea = this->children_[_nodeIndex - 1]->geometry_.toRect();
+        return {this, _nodeIndex, QRect(neighborArea.topLeft(), sourceArea.bottomRight())};
     }
-    return ContainerResizeView();
+    return {};
 }
 
 SplitContainer::NodeBase *SplitContainer::NodeContainer::findNodeContainingSplit(Split *_split)
@@ -2687,9 +2714,7 @@ void SplitContainer::NodeContainer::layout(bool addSpacing, float _scale, std::v
                                            this->geometry_.top(),
                                            8,
                                            this->geometry_.height());
-            resizeRects.push_back(ResizeRectPoly(r.toRect(), this, i));
-
-
+            resizeRects.push_back(ResizeRectPoly(r.toRect(), this, i, isVertical));
         }
 
         // normalize flex
@@ -2873,8 +2898,120 @@ SplitContainer::ResizeHandlePoly::ResizeHandlePoly(SplitContainer *_parent, Node
     , parent_(_parent)
 {
     this->setGeometry(_rect);
-    this->setMouseTracking(false);
+    this->setMouseTracking(true);
     this->hide();
+}
+
+void SplitContainer::ResizeHandlePoly::setVertical(bool isVertical)
+{
+    this->setCursor(isVertical ? Qt::SplitVCursor : Qt::SplitHCursor);
+    this->vertical_ = isVertical;
+}
+
+void SplitContainer::ResizeHandlePoly::setContainerView(NodeContainer::ContainerResizeView &&containerView)
+{
+    this->containerView_ = std::move(containerView);
+}
+
+void SplitContainer::ResizeHandlePoly::mouseMoveEvent(QMouseEvent *event)
+{
+    if (!this->isMouseDown_)
+    {
+        return;
+    }
+
+    assert(this->containerView_.isValid());
+
+    const QRect &area = this->containerView_.area();
+    const QPoint topLeft = this->parent_->mapToGlobal(area.topLeft());
+    const QPoint bottomRight = this->parent_->mapToGlobal(area.bottomRight());
+
+    /* Confine the mouse movement to within the resize area */
+    const auto globalPos = event->globalPosition().toPoint();
+    const int globalX = topLeft.x() > globalPos.x()
+                            ? topLeft.x()
+                            : (bottomRight.x() < globalPos.x() ? bottomRight.x()
+                                                               : globalPos.x());
+    const int globalY = topLeft.y() > globalPos.y()
+                            ? topLeft.y()
+                            : (bottomRight.y() < globalPos.y() ? bottomRight.y()
+                                                               : globalPos.y());
+
+    const QPoint mousePoint(globalX, globalY);
+    qreal &sourceFlex = *this->containerView_.sourceFlexRegister();
+    qreal &neighborFlex = *this->containerView_.neighborFlexRegister();
+    const qreal totalFlex = sourceFlex + neighborFlex;
+
+    /* Move handle */
+    // TODO: create default ResizeRect width, that you can divide by 2 and subtract to center the handle, instead of -4
+    if (this->vertical_)
+    {
+        const qreal newNeighborYBorder = (mousePoint.y() - topLeft.y());
+        neighborFlex = totalFlex *
+                       (newNeighborYBorder / (bottomRight.y() - topLeft.y()));
+        sourceFlex = totalFlex - neighborFlex;
+
+        this->parent_->layoutPoly();
+
+        // NOTE: this is duplicate code, since the new position is set in layout
+        // TODO: remove
+        // this->move(this->x(), int(newNeighborYBorder - 4));
+    }
+    else
+    {
+        const qreal newNeighborXBorder = (mousePoint.x() - topLeft.x());
+        neighborFlex = totalFlex *
+                       (newNeighborXBorder / (bottomRight.x() - topLeft.x()));
+        sourceFlex = totalFlex - neighborFlex;
+
+        this->parent_->layoutPoly();
+
+        // NOTE: this is duplicate code, since the new position is set in layout
+        // TODO: remove
+        // this->move(int(newNeighborXBorder - 4), this->y());
+    }
+}
+
+void SplitContainer::ResizeHandlePoly::mousePressEvent(QMouseEvent *event)
+{
+    this->isMouseDown_ = true;
+
+    if (event->button() == Qt::RightButton)
+    {
+        this->resetFlex();
+    }
+}
+
+void SplitContainer::ResizeHandlePoly::mouseReleaseEvent(QMouseEvent *event)
+{
+    this->isMouseDown_ = false;
+}
+
+void SplitContainer::ResizeHandlePoly::mouseDoubleClickEvent(QMouseEvent *event)
+{
+    event->accept();
+
+    this->resetFlex();
+}
+
+void SplitContainer::ResizeHandlePoly::paintEvent(QPaintEvent * /*event*/)
+{
+    QPainter painter(this);
+    painter.setPen(QPen(getApp()->getThemes()->splits.resizeHandle, 2));
+
+    painter.fillRect(this->rect(),
+                     getApp()->getThemes()->splits.resizeHandleBackground);
+
+    if (this->vertical_)
+    {
+        painter.drawLine(0, this->height() / 2, this->width(),
+                         this->height() / 2);
+    }
+    else
+    {
+        painter.drawLine(this->width() / 2, 0, this->width() / 2,
+                         this->height());
+    }
 }
 
 void SplitContainer::ResizeHandlePoly::resetFlex()
@@ -2883,19 +3020,24 @@ void SplitContainer::ResizeHandlePoly::resetFlex()
     this->parent_->layoutPoly();
 }
 
+QRect &SplitContainer::NodeContainer::ContainerResizeView::area()
+{
+    return this->effectiveArea_;
+}
+
 qreal *SplitContainer::NodeContainer::ContainerResizeView::sourceFlexRegister()
 {
-    return sourceFlexRegister_;
+    return this->sourceFlexRegister_;
 }
 
 qreal *SplitContainer::NodeContainer::ContainerResizeView::neighborFlexRegister()
 {
-    return neighborFlexRegister_;
+    return this->neighborFlexRegister_;
 }
 
 SplitContainer::NodeContainer::Axis SplitContainer::NodeContainer::ContainerResizeView::axis()
 {
-    return axis_;
+    return this->axis_;
 }
 
 void SplitContainer::NodeContainer::ContainerResizeView::callResetFlexWeights()
@@ -2911,8 +3053,9 @@ SplitContainer::NodeContainer::ContainerResizeView::ContainerResizeView()
     , axis_{Axis::Horizontal}
 {};
 
-SplitContainer::NodeContainer::ContainerResizeView::ContainerResizeView(NodeContainer *_container, size_t _nodeIndex)
-    : container_(_container)
+SplitContainer::NodeContainer::ContainerResizeView::ContainerResizeView(NodeContainer *_container, size_t _nodeIndex, const QRect &&_area)
+    : effectiveArea_(std::move(_area))
+    , container_(_container)
     , sourceFlexRegister_(&container_->flexWeights_[_nodeIndex])
     , neighborFlexRegister_(&container_->flexWeights_[_nodeIndex-1])
     , axis_(_container->axis_)
