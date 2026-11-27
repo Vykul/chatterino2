@@ -218,7 +218,7 @@ void Notebook::duplicatePage(QWidget *page)
         return;
     }
 
-    auto *newContainer = new SplitContainer(this);
+    auto *newContainer = new SplitContainer(this, true);
     if (!container->getSplits().empty())
     {
         // auto descriptor = container->buildDescriptor();
@@ -228,7 +228,6 @@ void Notebook::duplicatePage(QWidget *page)
 
         auto descriptorPoly = container->buildDescriptorPoly();
         newContainer->applyFromDescriptorPoly(descriptorPoly);
-        newContainer->setPolyMode(true);
     }
 
     const auto tabPosition = this->indexOf(page);

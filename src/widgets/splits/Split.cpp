@@ -1281,23 +1281,38 @@ void Split::drag()
     startDraggingSplit();
 
     // TODO: Can we just disable this split, then std::move it and re-enable it?
-    auto originalLocation = container->releaseSplit(this);
-    auto originalLocationPoly = container->releaseSplitPoly(this);
-    auto *drag = new QDrag(this);
-    auto *mimeData = new QMimeData;
+    if (container->isPolyMode()) {
+        auto originalLocationPoly = container->releaseSplitPoly(this);
+        auto *drag = new QDrag(this);
+        auto *mimeData = new QMimeData;
 
-    mimeData->setData("chatterino/split", "xD");
-    drag->setMimeData(mimeData);
+        mimeData->setData("chatterino/split", "xD");
+        drag->setMimeData(mimeData);
 
-    // drag->exec is a blocking action
-    auto dragRes = drag->exec(Qt::MoveAction);
-    if (dragRes != Qt::MoveAction || drag->target() == nullptr)
-    {
-        // The split wasn't dropped in a valid spot, return it to its original position
-        container->insertSplit(this, {.position = originalLocation});
-        container->insertSplitPoly(this, {.position = originalLocationPoly});
+        // drag->exec is a blocking action
+        auto dragRes = drag->exec(Qt::MoveAction);
+        if (dragRes != Qt::MoveAction || drag->target() == nullptr)
+        {
+            // The split wasn't dropped in a valid spot, return it to its original position
+            container->insertSplitPoly(this, {.position = originalLocationPoly});
+        }
     }
+    else {
+        auto originalLocation = container->releaseSplit(this);
+        auto *drag = new QDrag(this);
+        auto *mimeData = new QMimeData;
 
+        mimeData->setData("chatterino/split", "xD");
+        drag->setMimeData(mimeData);
+
+        // drag->exec is a blocking action
+        auto dragRes = drag->exec(Qt::MoveAction);
+        if (dragRes != Qt::MoveAction || drag->target() == nullptr)
+        {
+            // The split wasn't dropped in a valid spot, return it to its original position
+            container->insertSplit(this, {.position = originalLocation});
+        }
+    }
     stopDraggingSplit();
 }
 

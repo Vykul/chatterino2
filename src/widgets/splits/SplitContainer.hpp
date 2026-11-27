@@ -338,15 +338,26 @@ private:
         QPoint mouseOverPoint_;
         SplitContainer *parent_;
     };
+
     class DropOverlayPoly final : public QWidget
     {
     public:
+        pajlada::Signals::NoArgSignal dragEnded;
+
         DropOverlayPoly(SplitContainer *_parent = nullptr);
         void setRects(std::vector<SplitContainer::DropRectPoly> _rects);
 
+    protected:
+        void dragEnterEvent(QDragEnterEvent *event) override;
+        void dragMoveEvent(QDragMoveEvent *event) override;
+        void dragLeaveEvent(QDragLeaveEvent *event) override;
+        void dropEvent(QDropEvent *event) override;
+        void paintEvent(QPaintEvent *event) override;
+
     private:
-        std::vector<DropRectPoly> rects_;
         SplitContainer *parent_;
+        QPoint mouseOverPoint_;
+        std::vector<DropRectPoly> rects_;
 
         // TODO: Remove this
         friend class SplitContainer;
@@ -404,7 +415,7 @@ private:
     };
 
 public:
-    SplitContainer(Notebook *parent);
+    SplitContainer(Notebook *parent, bool isPolyMode = false);
 
     Split *appendNewSplit(bool openChannelNameDialog);
 
@@ -479,7 +490,6 @@ public:
 
     void popup();
     bool isPolyMode() {return this->testingPolyMode_;};
-    void setPolyMode(bool isPolyMode) {this->testingPolyMode_ = isPolyMode;};
 
 protected:
     void paintEvent(QPaintEvent *event) override;

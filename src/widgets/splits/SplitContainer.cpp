@@ -32,13 +32,14 @@
 
 namespace chatterino {
 
-SplitContainer::SplitContainer(Notebook *parent)
+SplitContainer::SplitContainer(Notebook *parent, bool isPolyMode)
     : BaseWidget(parent)
     , overlay_(this)
     , overlayPoly_(this)
     , mouseOverPoint_(-10000, -10000)
     , baseNode_(std::make_shared<Node>())
     , baseNodePoly_(std::make_shared<NodeContainer>())
+    , testingPolyMode_(isPolyMode)
     , tab_(nullptr)
 {
     this->refreshTabTitle();
@@ -104,7 +105,10 @@ SplitContainer::SplitContainer(Notebook *parent)
     this->setAcceptDrops(true);
 
     if (this->testingPolyMode_) {
-        // TODO: add signal
+        this->signalHolder_.managedConnect(this->overlayPoly_.dragEnded, [this]() {
+            this->isDragging_ = false;
+            this->layoutPoly();
+        });
 
         this->overlayPoly_.hide();
     }
@@ -137,11 +141,21 @@ void SplitContainer::setTab(NotebookTab *tab)
 
 void SplitContainer::hideResizeHandles()
 {
-    this->overlay_.hide();
+    /* Hide overlays when window is deactivated: appending new split, opening search, focusing a different program, etc */
+    if (this->testingPolyMode_) {
+        this->overlayPoly_.hide();
 
-    for (auto &handle : this->resizeHandles_)
-    {
-        handle->hide();
+        for (auto &handle : this->resizeHandlesPoly_) {
+            handle->hide();
+        }
+    }
+    else {
+        this->overlay_.hide();
+
+        for (auto &handle : this->resizeHandles_)
+        {
+            handle->hide();
+        }
     }
 }
 
@@ -760,11 +774,9 @@ void SplitContainer::layoutPoly()
     const bool addSpacing =
         Split::modifierStatus == SHOW_ADD_SPLIT_REGIONS || this->isDragging_;
     this->baseNodePoly_->layout(addSpacing, this->scale(), dropRects, resizeRects);
+
     // TODO: std::move?
-    //
-    // SHOW_ADD_SPLIT_REGIONS only applies to the base node and will only ever be 2 rects,
-    // Change member type? union or variant?
-    // If so, pass new member reference as parameter to NodeContainer->layout instead
+    /* Set our outer-boundary splitting rects for each container */
     this->dropRectsPoly_ = dropRects;
 
     /* Create drop rects for each split */
@@ -866,6 +878,9 @@ void SplitContainer::layoutPoly()
             }
         }
     }
+
+    /* Schedule a paint event */
+    this->update();
 }
 
 void SplitContainer::resizeEvent(QResizeEvent *event)
@@ -1001,48 +1016,99 @@ void SplitContainer::paintEvent(QPaintEvent * /*event*/)
         }
     }
 
-    for (DropRect &dropRect : this->dropRects_)
-    {
-        QColor border = getApp()->getThemes()->splits.dropTargetRectBorder;
-        QColor background = getApp()->getThemes()->splits.dropTargetRect;
-
-        if (!dropRect.rect.contains(this->mouseOverPoint_))
+    // NOTE: Can i just include this in the above else block?
+    //       since we should only have droprects if there are splits.
+    //       Make the code clearer i think
+    /* Paint our outer-boundary splitting rects for each container */
+    if (this->testingPolyMode_) {
+        for (DropRectPoly &dropRect : this->dropRectsPoly_)
         {
-            //            border.setAlphaF(0.1);
-            //            background.setAlphaF(0.1);
+            QColor border = getApp()->getThemes()->splits.dropTargetRectBorder;
+            QColor background = getApp()->getThemes()->splits.dropTargetRect;
+
+            if (!dropRect.rect.contains(this->mouseOverPoint_))
+            {
+                //            border.setAlphaF(0.1);
+                //            background.setAlphaF(0.1);
+            }
+            else
+            {
+                //            background.setAlphaF(0.1);
+                border.setAlpha(255);
+            }
+
+            painter.setPen(border);
+            painter.setBrush(background);
+
+            auto rect = dropRect.rect.marginsRemoved(QMargins(2, 2, 2, 2));
+
+            painter.drawRect(rect);
+
+            int s =
+                std::min<int>(dropRect.rect.width(), dropRect.rect.height()) - 12;
+
+            if (this->theme->isLightTheme())
+            {
+                painter.setPen(QColor(0, 0, 0));
+            }
+            else
+            {
+                painter.setPen(QColor(255, 255, 255));
+            }
+            painter.drawLine(rect.left() + rect.width() / 2 - (s / 2),
+                             rect.top() + rect.height() / 2,
+                             rect.left() + rect.width() / 2 + (s / 2),
+                             rect.top() + rect.height() / 2);
+            painter.drawLine(rect.left() + rect.width() / 2,
+                             rect.top() + rect.height() / 2 - (s / 2),
+                             rect.left() + rect.width() / 2,
+                             rect.top() + rect.height() / 2 + (s / 2));
         }
-        else
+    }
+    else {
+        for (DropRect &dropRect : this->dropRects_)
         {
-            //            background.setAlphaF(0.1);
-            border.setAlpha(255);
+            QColor border = getApp()->getThemes()->splits.dropTargetRectBorder;
+            QColor background = getApp()->getThemes()->splits.dropTargetRect;
+
+            if (!dropRect.rect.contains(this->mouseOverPoint_))
+            {
+                //            border.setAlphaF(0.1);
+                //            background.setAlphaF(0.1);
+            }
+            else
+            {
+                //            background.setAlphaF(0.1);
+                border.setAlpha(255);
+            }
+
+            painter.setPen(border);
+            painter.setBrush(background);
+
+            auto rect = dropRect.rect.marginsRemoved(QMargins(2, 2, 2, 2));
+
+            painter.drawRect(rect);
+
+            int s =
+                std::min<int>(dropRect.rect.width(), dropRect.rect.height()) - 12;
+
+            if (this->theme->isLightTheme())
+            {
+                painter.setPen(QColor(0, 0, 0));
+            }
+            else
+            {
+                painter.setPen(QColor(255, 255, 255));
+            }
+            painter.drawLine(rect.left() + rect.width() / 2 - (s / 2),
+                             rect.top() + rect.height() / 2,
+                             rect.left() + rect.width() / 2 + (s / 2),
+                             rect.top() + rect.height() / 2);
+            painter.drawLine(rect.left() + rect.width() / 2,
+                             rect.top() + rect.height() / 2 - (s / 2),
+                             rect.left() + rect.width() / 2,
+                             rect.top() + rect.height() / 2 + (s / 2));
         }
-
-        painter.setPen(border);
-        painter.setBrush(background);
-
-        auto rect = dropRect.rect.marginsRemoved(QMargins(2, 2, 2, 2));
-
-        painter.drawRect(rect);
-
-        int s =
-            std::min<int>(dropRect.rect.width(), dropRect.rect.height()) - 12;
-
-        if (this->theme->isLightTheme())
-        {
-            painter.setPen(QColor(0, 0, 0));
-        }
-        else
-        {
-            painter.setPen(QColor(255, 255, 255));
-        }
-        painter.drawLine(rect.left() + rect.width() / 2 - (s / 2),
-                         rect.top() + rect.height() / 2,
-                         rect.left() + rect.width() / 2 + (s / 2),
-                         rect.top() + rect.height() / 2);
-        painter.drawLine(rect.left() + rect.width() / 2,
-                         rect.top() + rect.height() / 2 - (s / 2),
-                         rect.left() + rect.width() / 2,
-                         rect.top() + rect.height() / 2 + (s / 2));
     }
 
     auto accentColor = (QApplication::activeWindow() == this->window()
@@ -2880,11 +2946,92 @@ void SplitContainer::NodeData::layout(bool addSpacing, float _scale, std::vector
 
 SplitContainer::DropOverlayPoly::DropOverlayPoly(SplitContainer *_parent)
     : QWidget(_parent)
-    // , mouseOverPoint_(-10000, -10000)
     , parent_(_parent)
+    , mouseOverPoint_(-10000, -10000)
 {
-    // this->setMouseTracking(true);
-    // this->setAcceptDrops(true);
+    this->setMouseTracking(true);
+    this->setAcceptDrops(true);
+}
+
+void SplitContainer::DropOverlayPoly::dragEnterEvent(QDragEnterEvent *event)
+{
+    event->acceptProposedAction();
+}
+
+void SplitContainer::DropOverlayPoly::dragMoveEvent(QDragMoveEvent *event)
+{
+    event->acceptProposedAction();
+
+    this->mouseOverPoint_ = event->position().toPoint();
+    this->update();
+}
+
+void SplitContainer::DropOverlayPoly::dragLeaveEvent(QDragLeaveEvent * /*event*/)
+{
+    this->mouseOverPoint_ = QPoint(-10000, -10000);
+    this->close();
+    this->dragEnded.invoke();
+}
+
+void SplitContainer::DropOverlayPoly::dropEvent(QDropEvent *event)
+{
+    PositionPoly *position = nullptr;
+    for (DropRectPoly &rect : this->rects_)
+    {
+        if (rect.rect.contains(this->mouseOverPoint_))
+        {
+            position = &rect.position;
+            break;
+        }
+    }
+
+    if (!position)
+    {
+        qCDebug(chatterinoWidget) << "No valid drop rectangle under cursor";
+        return;
+    }
+
+    auto *draggedSplit = dynamic_cast<Split *>(event->source());
+    if (!draggedSplit)
+    {
+        qCDebug(chatterinoWidget)
+        << "Dropped something that wasn't a split onto a split container";
+        return;
+    }
+
+    this->parent_->insertSplitPoly(draggedSplit, {.position = *position});
+    event->acceptProposedAction();
+
+    this->mouseOverPoint_ = QPoint(-10000, -10000);
+    this->close();
+    this->dragEnded.invoke();
+}
+
+void SplitContainer::DropOverlayPoly::paintEvent(QPaintEvent *event)
+{
+    QPainter painter(this);
+
+    // painter.fillRect(this->rect(), QColor("#334"));
+
+    bool foundMover = false;
+
+    for (DropRectPoly &rect : this->rects_)
+    {
+        if (!foundMover && rect.rect.contains(this->mouseOverPoint_))
+        {
+            painter.setBrush(getApp()->getThemes()->splits.dropPreview);
+            painter.setPen(getApp()->getThemes()->splits.dropPreviewBorder);
+            foundMover = true;
+        }
+        else
+        {
+            painter.setBrush(QColor(0, 0, 0, 0));
+            painter.setPen(QColor(0, 0, 0, 0));
+            // painter.setPen(getApp()->getThemes()->splits.dropPreviewBorder);
+        }
+
+        painter.drawRect(rect.rect);
+    }
 }
 
 void SplitContainer::DropOverlayPoly::setRects(std::vector<DropRectPoly> _rects)
