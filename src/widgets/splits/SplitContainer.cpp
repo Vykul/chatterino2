@@ -416,10 +416,19 @@ void SplitContainer::setSelected(Split *split)
 
     this->selected_ = split;
 
-    if (Node *node = this->baseNode_->findNodeContainingSplit(split))
-    {
-        this->focusSplitRecursive(node);
-        this->setPreferedTargetRecursive(node);
+    if (this->testingPolyMode_) {
+        if (NodeBase *node = this->baseNodePoly_->findNodeContainingSplit(split))
+        {
+            this->focusSplitRecursivePoly(node);    // NOTE: this is redundant when selecting split with arrow keys, but not sure if it can be avoided
+            this->setPreferedTargetRecursivePoly(node);
+        }
+    }
+    else {
+        if (Node *node = this->baseNode_->findNodeContainingSplit(split))
+        {
+            this->focusSplitRecursive(node);    // NOTE: this is redundant when selecting split with arrow keys, but not sure if it can be avoided
+            this->setPreferedTargetRecursive(node);
+        }
     }
 }
 
@@ -430,6 +439,16 @@ void SplitContainer::setPreferedTargetRecursive(Node *node)
         node->parent_->preferedFocusTarget_ = node;
 
         this->setPreferedTargetRecursive(node->parent_);
+    }
+}
+
+void SplitContainer::setPreferedTargetRecursivePoly(NodeBase *node)
+{
+    if (node->parent_ != nullptr)
+    {
+        node->parent_->preferedFocusTarget_ = node;
+
+        this->setPreferedTargetRecursivePoly(node->parent_);
     }
 }
 
@@ -515,9 +534,16 @@ void SplitContainer::selectNextSplit(SplitDirection direction)
 {
     assertInGuiThread();
 
-    if (Node *node = this->baseNode_->findNodeContainingSplit(this->selected_))
-    {
-        this->selectSplitRecursive(node, direction);
+    if (this->testingPolyMode_) {
+        if (NodeBase *nodePoly = this->baseNodePoly_->findNodeContainingSplit(this->selected_)) {
+            this->selectSplitRecursivePoly(nodePoly, direction);
+        }
+    }
+    else {
+        if (Node *node = this->baseNode_->findNodeContainingSplit(this->selected_))
+        {
+            this->selectSplitRecursive(node, direction);
+        }
     }
 }
 
@@ -568,6 +594,53 @@ void SplitContainer::selectSplitRecursive(Node *node, SplitDirection direction)
     }
 }
 
+void SplitContainer::selectSplitRecursivePoly(NodeBase *node, SplitDirection direction)
+{
+    auto container = node->getParent();
+    if (container == nullptr) {
+        return;
+    }
+
+    if (container->isParallel(direction))
+    {
+        const auto &children = container->children_;
+
+        auto nodeIt = std::find_if(children.begin(), children.end(),
+                                   [node](const auto &other) {
+                                       return other.get() == node;
+                                   });
+        assert(nodeIt != children.end());
+
+        if (direction == SplitDirection::Left ||
+            direction == SplitDirection::Above)
+        {
+            if (nodeIt == children.begin())
+            {
+                this->selectSplitRecursivePoly(container, direction);
+            }
+            else
+            {
+                this->focusSplitRecursivePoly(std::prev(nodeIt)->get());
+            }
+        }
+        else
+        {
+            if (nodeIt == std::prev(children.end()))
+            {
+                this->selectSplitRecursivePoly(container, direction);
+            }
+            else
+            {
+                this->focusSplitRecursivePoly(std::next(nodeIt)->get());
+            }
+        }
+    }
+    else
+    {
+        this->selectSplitRecursivePoly(container, direction);
+    }
+}
+
 void SplitContainer::focusSplitRecursive(Node *node)
 {
     switch (node->type_)
@@ -598,6 +671,38 @@ void SplitContainer::focusSplitRecursive(Node *node)
         break;
 
         default:;
+    }
+}
+
+void SplitContainer::focusSplitRecursivePoly(NodeBase *node)
+{
+    // TODO: create virutal focus functions
+    if (node->isContainer()) {
+        auto *container = dynamic_cast<NodeContainer*>(node);
+        assert(container != nullptr);
+
+        const auto &children = container->children_;
+
+        /* Get an iterator to container's preferred target */
+        auto it = std::find_if(
+            children.begin(), children.end(), [container](const auto &other) {
+                return container->preferedFocusTarget_ == other.get();
+            });
+
+        if (it != children.end())
+        {
+            this->focusSplitRecursivePoly(it->get());
+        }
+        else
+        {
+            this->focusSplitRecursivePoly(children.front().get());
+        }
+    }
+    else {
+        auto *splitNode = dynamic_cast<NodeData*>(node);
+        assert(splitNode != nullptr);
+
+        splitNode->split_->setFocus(Qt::FocusReason::OtherFocusReason);
     }
 }
 
@@ -1167,10 +1272,21 @@ void SplitContainer::leaveEvent(QEvent * /*event*/)
 
 void SplitContainer::focusInEvent(QFocusEvent * /*event*/)
 {
-    if (this->baseNode_->findNodeContainingSplit(this->selected_) != nullptr)
-    {
-        this->selected_->setFocus();
-        return;
+    // NOTE: this seems to only fire on first selection of a new tab?
+    //       but empty tabs repeatedly fire???
+    if (this->testingPolyMode_) {
+        if (this->baseNodePoly_->findNodeContainingSplit(this->selected_) != nullptr)
+        {
+            this->selected_->setFocus();
+            return;
+        }
+    }
+    else {
+        if (this->baseNode_->findNodeContainingSplit(this->selected_) != nullptr)
+        {
+            this->selected_->setFocus();
+            return;
+        }
     }
 
     if (!this->splits_.empty())
@@ -2344,6 +2460,25 @@ bool SplitContainer::NodeContainer::isContainer() const
     return true;
 }
 
+bool SplitContainer::NodeContainer::isParallel(const SplitDirection &direction)
+{
+    if (this->axis_ == Axis::Horizontal) {
+        if (direction == SplitDirection::Left ||
+            direction == SplitDirection::Right)
+        {
+            return true;
+        }
+    }
+    else if (this->axis_ == Axis::Vertical) {
+        if (direction == SplitDirection::Above ||
+            direction == SplitDirection::Below)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool SplitContainer::NodeContainer::isVertical()
 {
     return this->axis_ == Axis::Vertical;
@@ -2375,13 +2510,15 @@ SplitContainer::NodeContainer::ContainerResizeView SplitContainer::NodeContainer
 
 SplitContainer::NodeBase *SplitContainer::NodeContainer::findNodeContainingSplit(Split *_split)
 {
-    for (const auto &node : this->children_)
-    {
-        NodeBase *match = node->findNodeContainingSplit(_split);
-
-        if (match != nullptr)
+    if (_split) {
+        for (const auto &node : this->children_)
         {
-            return match;
+            NodeBase *match = node->findNodeContainingSplit(_split);
+
+            if (match != nullptr)
+            {
+                return match;
+            }
         }
     }
     return nullptr;

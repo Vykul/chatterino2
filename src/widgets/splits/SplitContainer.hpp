@@ -229,6 +229,7 @@ public:
         std::vector<qreal> &getFlexWeights();
         qreal getChildrensTotalFlex();
         bool isContainer() const final;
+        bool isParallel(const SplitDirection &direction);
         bool isVertical();
         ContainerResizeView getContainerResizeView(size_t _nodeIndex);
 
@@ -516,9 +517,16 @@ private:
 
     void layout();
     void layoutPoly();
+
     void selectSplitRecursive(Node *node, SplitDirection direction);
+    void selectSplitRecursivePoly(NodeBase *node, SplitDirection direction);
+
     void focusSplitRecursive(Node *node);
+    void focusSplitRecursivePoly(NodeBase *node);
+
     void setPreferedTargetRecursive(Node *node);
+    void setPreferedTargetRecursivePoly(NodeBase *node);
+
     void paintSplitBorder(Node *node, QPainter *painter);
     void paintSplitBorderPoly(QPainter *painter);
 
