@@ -419,7 +419,7 @@ void SplitContainer::setSelected(Split *split)
     if (this->testingPolyMode_) {
         if (NodeBase *node = this->baseNodePoly_->findNodeContainingSplit(split))
         {
-            this->focusSplitRecursivePoly(node);    // NOTE: this is redundant when selecting split with arrow keys, but not sure if it can be avoided
+            node->focusSplit();    // NOTE: this is redundant when selecting split with arrow keys, but not sure if it can be avoided
             this->setPreferedTargetRecursivePoly(node);
         }
     }
@@ -594,9 +594,10 @@ void SplitContainer::selectSplitRecursive(Node *node, SplitDirection direction)
     }
 }
 
+// TODO: maybe make this a nodebase function too? dont need to but maybe for consistency
 void SplitContainer::selectSplitRecursivePoly(NodeBase *node, SplitDirection direction)
 {
-    auto container = node->getParent();
+    auto *container = node->getParent();
     if (container == nullptr) {
         return;
     }
@@ -605,33 +606,38 @@ void SplitContainer::selectSplitRecursivePoly(NodeBase *node, SplitDirection dir
     {
         const auto &children = container->children_;
 
-        auto nodeIt = std::find_if(children.begin(), children.end(),
-                                   [node](const auto &other) {
-                                       return other.get() == node;
-                                   });
-        assert(nodeIt != children.end());
+        auto nodeIter = std::ranges::find_if(
+            children,
+            // NOTE: overkill but want to test constifying everything; copy makes const pointer
+            [n = static_cast<const NodeBase*>(node)]
+            (const auto &other) {
+                return n == other.get();
+            });
+        assert(nodeIter != children.end());
 
         if (direction == SplitDirection::Left ||
             direction == SplitDirection::Above)
         {
-            if (nodeIt == children.begin())
+            if (nodeIter == children.begin())
             {
                 this->selectSplitRecursivePoly(container, direction);
             }
             else
             {
-                this->focusSplitRecursivePoly(std::prev(nodeIt)->get());
+                /* Focus on node's head-bound neighbor */
+                (*std::prev(nodeIter))->focusSplit();
             }
         }
         else
         {
-            if (nodeIt == std::prev(children.end()))
+            if (nodeIter == std::prev(children.end()))
             {
                 this->selectSplitRecursivePoly(container, direction);
             }
             else
             {
-                this->focusSplitRecursivePoly(std::next(nodeIt)->get());
+                /* Focus on node's tail-bound neighbor */
+                (*std::next(nodeIter))->focusSplit();
             }
         }
     }
@@ -671,38 +677,6 @@ void SplitContainer::focusSplitRecursive(Node *node)
         break;
 
         default:;
-    }
-}
-
-void SplitContainer::focusSplitRecursivePoly(NodeBase *node)
-{
-    // TODO: create virutal focus functions
-    if (node->isContainer()) {
-        auto *container = dynamic_cast<NodeContainer*>(node);
-        assert(container != nullptr);
-
-        const auto &children = container->children_;
-
-        /* Get an iterator to container's preferred target */
-        auto it = std::find_if(
-            children.begin(), children.end(), [container](const auto &other) {
-                return container->preferedFocusTarget_ == other.get();
-            });
-
-        if (it != children.end())
-        {
-            this->focusSplitRecursivePoly(it->get());
-        }
-        else
-        {
-            this->focusSplitRecursivePoly(children.front().get());
-        }
-    }
-    else {
-        auto *splitNode = dynamic_cast<NodeData*>(node);
-        assert(splitNode != nullptr);
-
-        splitNode->split_->setFocus(Qt::FocusReason::OtherFocusReason);
     }
 }
 
@@ -2777,6 +2751,28 @@ void SplitContainer::NodeContainer::clamp()
     }
 }
 
+void SplitContainer::NodeContainer::focusSplit() const
+{
+    /* Focus our preferred split */
+    auto nodeIter = std::ranges::find_if(
+        this->children_,
+        // NOTE: overkill but want to test constifying everything; copy makes const pointer
+        [target = static_cast<const NodeBase*>(this->preferedFocusTarget_)]
+        (const auto &other) {
+            return target == other.get();
+        });
+
+    if (nodeIter != this->children_.end())
+    {
+        (*nodeIter)->focusSplit();
+    }
+    else
+    {
+        /* Default to head child */
+        this->children_.front()->focusSplit();
+    }
+}
+
 qreal SplitContainer::NodeContainer::getSize(bool _isVertical)
 {
     return _isVertical ? this->geometry_.height() : this->geometry_.width();
@@ -3064,6 +3060,11 @@ qreal SplitContainer::NodeData::getSize(bool _isVertical)
 bool SplitContainer::NodeData::isContainer() const
 {
     return false;
+}
+
+void SplitContainer::NodeData::focusSplit() const
+{
+    this->split_->setFocus(Qt::FocusReason::OtherFocusReason);
 }
 
 SplitContainer::NodeBase *SplitContainer::NodeData::findNodeContainingSplit(Split *_split)

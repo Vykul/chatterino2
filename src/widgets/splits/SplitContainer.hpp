@@ -204,6 +204,7 @@ public:
         virtual NodeBase *findNodeContainingSplit(Split *_split) = 0;
         virtual bool isOrContainsNode(NodeBase *_node);
 
+        virtual void focusSplit() const = 0;
         virtual qreal getSize(bool _isVertical) = 0;
         virtual void layout(bool addSpacing, float _scale,
                             std::vector<DropRectPoly> &dropRects,
@@ -245,6 +246,7 @@ public:
 
         // Clamps the flex values ensuring they're never below 0
         void clamp();
+        void focusSplit() const final;
         qreal getSize(bool _isVertical) final;
         void layout(bool addSpacing, float _scale,
                     std::vector<DropRectPoly> &dropRects,
@@ -307,6 +309,7 @@ public:
         bool isContainer() const final;
         NodeBase *findNodeContainingSplit(Split *_split) final;
 
+        void focusSplit() const final;
         void layout(bool addSpacing, float _scale,
                     std::vector<DropRectPoly> &dropRects,
                     std::vector<ResizeRectPoly> &resizeRects) final;
@@ -522,7 +525,6 @@ private:
     void selectSplitRecursivePoly(NodeBase *node, SplitDirection direction);
 
     void focusSplitRecursive(Node *node);
-    void focusSplitRecursivePoly(NodeBase *node);
 
     void setPreferedTargetRecursive(Node *node);
     void setPreferedTargetRecursivePoly(NodeBase *node);

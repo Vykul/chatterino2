@@ -37,6 +37,8 @@ sol::table qPointerWrapped(const auto &items, sol::this_state state)
     return tbl;
 }
 
+// TODO: Aware
+
 /// Wraps a `std::weak_ptr<SplitContainer::Node>` and adds convenience functions
 /// and an `operator==`.
 ///
