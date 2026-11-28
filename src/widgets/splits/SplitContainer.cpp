@@ -2213,6 +2213,7 @@ void SplitContainer::DropOverlay::dropEvent(QDropEvent *event)
     }
 
     this->parent_->insertSplit(draggedSplit, {.position = *position});
+    // need to this->parent_->setSelected(draggedSplit); otherwise draggedSplit is highlighted, but this->parent_->selectedSplit is defaulted to its first split
     event->acceptProposedAction();
 
     this->mouseOverPoint_ = QPoint(-10000, -10000);
@@ -3137,7 +3138,9 @@ void SplitContainer::DropOverlayPoly::dropEvent(QDropEvent *event)
         return;
     }
 
+    // TODO: insertSplit return ref to node?
     this->parent_->insertSplitPoly(draggedSplit, {.position = *position});
+    this->parent_->setSelected(draggedSplit);
     event->acceptProposedAction();
 
     this->mouseOverPoint_ = QPoint(-10000, -10000);
